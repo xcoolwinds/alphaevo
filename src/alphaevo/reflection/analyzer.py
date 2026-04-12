@@ -9,6 +9,7 @@ Given a Strategy and its EvaluationReport, the analyzer:
 from __future__ import annotations
 
 import logging
+from enum import Enum
 from time import perf_counter
 
 from alphaevo.backtest.indicators import IndicatorRegistry
@@ -1359,10 +1360,10 @@ class ReflectionAnalyzer:
         for s in evaluation.failure_cases[:10]:
             if s.exit_reason is None:
                 exit_reason = None
-            elif isinstance(s.exit_reason, str):
-                exit_reason = s.exit_reason
-            else:
+            elif isinstance(s.exit_reason, Enum):
                 exit_reason = s.exit_reason.value
+            else:
+                exit_reason = s.exit_reason
             base = (
                 f"- {s.symbol} {s.signal_date}: "
                 f"entry={s.entry_price:.2f} exit={s.exit_price or 0:.2f} "
