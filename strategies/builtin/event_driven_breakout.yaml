@@ -1,0 +1,95 @@
+meta:
+  id: event_driven_breakout_v1
+  name: 事件驱动突破
+  version: 1
+  parent_id: null
+  created_at: '2026-03-31'
+  market: a_share
+  category: event
+  tags:
+  - 事件驱动
+  - 新闻
+  - 政策
+  - 突破
+  preferred_regime:
+  - trending_up
+  - volatile
+  experimental: true
+description: '适用市场：事件催化期
+
+  核心逻辑：
+
+  1. 利好新闻/政策/业绩驱动（新闻情绪评分 > 0.7）
+
+  2. 事件发生后量价确认（放量突破关键位）
+
+  3. 所属板块近期有资金流入迹象
+
+  4. 非已经过度反应的标的（距事件不超过3天）
+
+  5. 持续跟踪2~5天，观察后续确认
+
+  买入条件：事件确认 + 量价突破当日
+
+  止损条件：跌回事件前价格
+
+  止盈条件：2R 或 量能持续萎缩时退出
+
+  '
+universe:
+  market:
+  - a_share_main
+  filters:
+  - field: market_cap
+    op: '>='
+    value: 3000000000
+entry:
+  logic: and
+  conditions:
+  - indicator: news_sentiment_score
+    op: '>'
+    value: 0.7
+  - indicator: days_since_event
+    op: <=
+    value: 3
+  - indicator: volume_ratio_1d_5d
+    op: '>'
+    value: 2.0
+  - indicator: price_above_pre_event
+    op: ==
+    value: true
+  filters:
+  - indicator: sector_fund_flow_positive
+    op: ==
+    value: true
+  - indicator: already_overreacted
+    op: ==
+    value: false
+exit:
+  stop_loss:
+    type: price_level
+    reference: pre_event_close
+  take_profit:
+    type: rr
+    value: 2.0
+  max_holding_days: 5
+params:
+  tunable:
+  - target: entry.conditions[indicator=news_sentiment_score].value
+    range:
+    - 0.5
+    - 0.9
+    step: 0.05
+    label: 新闻情绪阈值
+  - target: entry.conditions[indicator=volume_ratio_1d_5d].value
+    range:
+    - 1.5
+    - 3.0
+    step: 0.25
+    label: 量比阈值
+  - target: exit.take_profit.value
+    range:
+    - 1.5
+    - 3.0
+    step: 0.5
+    label: 止盈倍数

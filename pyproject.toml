@@ -1,0 +1,111 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "alphaevo"
+version = "0.1.0"
+description = "AlphaEvo — Build, Test, Reflect, and Evolve Stock Trading Strategies with LLMs"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+authors = [
+    {name = "ZhuLinsen"},
+]
+keywords = ["stock", "trading", "strategy", "llm", "agent", "evolution", "backtest", "quant"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "pydantic>=2.0",
+    "typer>=0.9",
+    "rich>=13.0",
+    "pandas>=2.0",
+    "pyyaml>=6.0",
+    "tenacity>=8.2",
+]
+
+[project.optional-dependencies]
+llm = ["litellm>=1.40"]
+data-yfinance = ["yfinance>=0.2.0"]
+data-akshare = ["akshare>=1.12.0"]
+data-full = [
+    "yfinance>=0.2.0",
+    "akshare>=1.12.0",
+    "efinance>=0.5.5",
+    "tushare>=1.4.0",
+    "baostock>=0.8.8",
+]
+dsa = []  # daily_stock_analysis integration (manually installed)
+dev = [
+    "build>=1.2",
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "pytest-cov>=4.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0",
+    "pandas-stubs>=2.0",
+    "types-PyYAML>=6.0",
+    "pre-commit>=3.0",
+]
+tui = ["textual>=0.40"]
+charts = ["plotext>=5.0", "matplotlib>=3.7"]
+all = [
+    "alphaevo[llm,data-full,dev,tui,charts]",
+]
+
+[project.scripts]
+alphaevo = "alphaevo.cli.main:app"
+
+[project.urls]
+Homepage = "https://github.com/ZhuLinsen/alphaevo"
+Documentation = "https://github.com/ZhuLinsen/alphaevo/tree/main/docs"
+Repository = "https://github.com/ZhuLinsen/alphaevo"
+Issues = "https://github.com/ZhuLinsen/alphaevo/issues"
+Changelog = "https://github.com/ZhuLinsen/alphaevo/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/alphaevo"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "TCH"]
+ignore = ["E501", "TC001", "TC003"]
+
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = ["pydantic.BaseModel", "pydantic_settings.BaseSettings"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["N806", "N817", "SIM108", "TC003"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "network: tests requiring network access",
+    "slow: slow tests",
+]
+asyncio_mode = "auto"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["yaml", "pandas", "yfinance", "akshare", "plotext"]
+ignore_missing_imports = true

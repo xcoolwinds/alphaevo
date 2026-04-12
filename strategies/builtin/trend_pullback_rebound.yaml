@@ -1,0 +1,117 @@
+meta:
+  id: trend_pullback_rebound_v1
+  name: 强趋势回踩放量反包
+  version: 1
+  parent_id: null
+  created_at: '2026-03-31'
+  market: a_share
+  category: trend
+  tags:
+  - 趋势
+  - 回踩
+  - 放量
+  - 反包
+  preferred_regime:
+  - trending_up
+description: '适用市场：趋势市
+
+  核心逻辑：
+
+  1. 个股近20日相对强于行业指数
+
+  2. 5日线在10日线上方（均线多头排列）
+
+  3. 回踩10日线附近但未破20日线
+
+  4. 当日成交量较5日均量放大1.5倍以上
+
+  5. 近3日无重大利空新闻
+
+  买入条件：次日开盘或突破前高
+
+  止损条件：跌破20日线
+
+  止盈条件：2R 或 分批止盈
+
+  '
+universe:
+  market:
+  - a_share_main
+  filters:
+  - field: market_cap
+    op: '>='
+    value: 5000000000
+  - field: daily_turnover_rate
+    op: '>='
+    value: 0.01
+entry:
+  logic: and
+  conditions:
+  - indicator: relative_strength_20d
+    op: '>'
+    value: 0.08
+  - indicator: ma5_above_ma10
+    op: ==
+    value: true
+  - indicator: close_to_ma10_pct
+    op: <=
+    value: 0.015
+  - indicator: close_above_ma20
+    op: ==
+    value: true
+  - indicator: volume_ratio_1d_5d
+    op: '>'
+    value: 1.5
+  filters:
+  - indicator: negative_news_score
+    op: <
+    value: 0.4
+  - indicator: st_flag
+    op: ==
+    value: false
+exit:
+  stop_loss:
+    type: pct
+    value: 0.04
+  take_profit:
+    type: rr
+    value: 2.0
+  max_holding_days: 10
+params:
+  tunable:
+  - target: entry.conditions[indicator=relative_strength_20d].value
+    range:
+    - 0.05
+    - 0.2
+    step: 0.01
+    label: 相对强度阈值
+  - target: entry.conditions[indicator=relative_strength_20d].indicator
+    range:
+    - 10
+    - 60
+    step: 5
+    label: 相对强度观察周期
+  - target: entry.conditions[indicator=volume_ratio_1d_5d].value
+    range:
+    - 1.2
+    - 2.5
+    step: 0.1
+    label: 量比阈值
+  - target: entry.conditions[indicator=volume_ratio_1d_5d].indicator
+    range:
+    - 3
+    - 20
+    step: 1
+    label: 量比基准窗口
+  - target: exit.stop_loss.value
+    range:
+    - 0.02
+    - 0.08
+    step: 0.01
+    label: 止损比例
+  - target: exit.take_profit.value
+    range:
+    - 1.5
+    - 3.0
+    step: 0.5
+    label: 止盈倍数

@@ -1,0 +1,104 @@
+# Changelog
+
+All notable changes to AlphaEvo will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+- **AlphaFactory → Evolution Integration**: Factor discovery pipeline now triggers
+  automatically during evolution when conventional reflection yields no improvements.
+  LLM generates candidate indicator code → sandboxed execution → statistical
+  validation → dynamic registration → strategy injection.
+- **Structural Mutation (CHANGE_LOGIC)**: Evolution can now switch entry logic
+  between AND/OR. Heuristic fallback triggers when many AND conditions produce
+  too few signals.
+- **Factor Discovery Mutation (DISCOVER_FACTOR)**: New ChangeType allows the
+  evolution loop to inject LLM-discovered factors as strategy conditions.
+- **Portfolio-Level Backtesting**: `PortfolioBacktester` simulates execution with
+  $100K initial capital, max 5 concurrent positions, 20% position sizing.
+  Reports portfolio drawdown, Sharpe ratio, and capital utilization.
+- **LLM vs Param_Search Baseline**: After LLM/hybrid evolution, the pipeline
+  automatically runs a param_search-only baseline for comparison.
+  Shows incremental value of LLM reflection.
+- **Experimental Strategy Marking**: Strategies using proxy indicators
+  (event_driven_breakout, sector_rotation_leader) now have `experimental: true`
+  in their YAML meta. CLI displays ⚠️ warning in `strategy list` and `strategy show`.
+- **Demo Synthetic Data Disclaimer**: Demo now clearly states results use synthetic
+  data and suggests `alphaevo demo --real` for real market data.
+
+### Changed
+- `ChangeType` enum extended with `CHANGE_LOGIC` and `DISCOVER_FACTOR`
+- `StrategyMeta` model gains `experimental: bool = False` field
+- `EvolutionResult` gains `baseline_param_search_score: float | None` field
+- Serializer omits `experimental: false` from YAML output to avoid clutter
+- LLM reflection prompts now include `change_logic` and `discover_factor` as
+  valid change types
+
+## [0.1.0] — 2026-03-31
+
+### Added
+
+#### Real-World Validation
+- **Real evolve run** with live yfinance data + DeepSeek LLM: `ma_crossover_v1` → `v3` over 3 rounds
+  - Confidence: 29.2% → 46.8% (+17.6pp)
+  - Win rate: 41.7% → 55.4%, avg return: -0.39% → +1.41%
+- **Validation reports** in `reports/real_validation_20260331/`
+- **LLM connectivity smoke test** verified against real DeepSeek endpoint
+- **Evolution experience store** — persists lessons learned from each evolution round for cross-round and cross-strategy learning
+- **Round history context** — LLM reflection now includes previous rounds' changes and outcomes to avoid repeating failed approaches
+
+#### Core Pipeline
+- **Strategy DSL v0.3** — YAML-based strategy definition with entry/exit conditions, universe filters, tunable parameters
+- **Strategy Parser & Serializer** — bidirectional YAML ↔ Pydantic model conversion
+- **Indicator Registry** — 12 MVP indicators computed from OHLCV data, with graceful degradation for unavailable indicators
+- **Condition Evaluator** — evaluate entry/exit conditions with support for `and`/`or` logic
+- **Backtest Engine** — event-driven backtesting with stop-loss (pct/atr/pct_from_low/composite), take-profit (rr/pct/trailing), and A-share market rules (T+1, limit up/down)
+- **Multi-dimensional Evaluator** — win rate, P/L ratio, Sharpe, drawdown, confidence score with anti-overfit penalties
+- **Run Pipeline** — end-to-end orchestration: sample → fetch data → backtest → evaluate → report
+
+#### LLM Evolution (requires `alphaevo[llm]`)
+- **LLMClient** — lazy litellm wrapper with retry, JSON extraction from markdown fences, separate reflection model support
+- **ReflectionAnalyzer** — LLM-driven failure analysis with smart heuristic fallback (handles 5 scenarios: low signals, low win rate, poor P/L, high drawdown, fine-tuning)
+- **StrategyMutator** — deterministic strategy mutation with safety guardrails (max 3 changes/round, complexity limit of 8 conditions)
+- **StrategyGenerator** — natural language → Strategy creation with auto-retry on parse errors
+- **EvolutionPipeline** — multi-round self-improvement loop with 3 methods (llm, param_search, hybrid), early stopping on stagnation/overfitting
+
+#### Data Layer
+- **YFinance Adapter** — async data fetching for US/HK/A-share markets with symbol conversion
+- **DataManager** — multi-adapter support with fallback chain
+
+#### Strategy Management
+- **StrategyStore** — SQLite-based CRUD with evaluation persistence, family queries, leaderboard
+- **6 built-in strategy templates** — trend, reversal, event, rotation (A-share) + RSI reversion, MA crossover (US)
+
+#### CLI (`alphaevo` command)
+- `alphaevo init` — interactive first-time setup
+- `alphaevo strategy create/list/show/import/validate` — full strategy management
+- `alphaevo run <id>` — run research loop with Rich progress display
+- `alphaevo evolve <id>` — multi-round strategy evolution
+- `alphaevo leaderboard` — ranked strategy table
+- `alphaevo compare <id1> <id2>` — side-by-side comparison
+- `alphaevo tree <id>` — evolution tree visualization
+- `alphaevo config show/set` — configuration management
+- `alphaevo demo` — **self-evolution showcase** with synthetic data (no API key/network needed)
+- `alphaevo version` — version display
+
+#### Infrastructure
+- **AppConfig** — unified configuration with priority chain (CLI > env > project > user > defaults)
+- **Adaptive Sampler** — stratified stock sampling by market cap
+- **Reporter** — JSON + Markdown report generation, multi-strategy comparison tables
+- **256 unit tests** with full coverage of all modules
+- **GitHub Actions CI** — Python 3.10/3.11/3.12 matrix
+- **CONTRIBUTING.md** + **docs/README_CN.md** documentation
+
+### DSL Changelog
+- **v0.1** — Initial: meta/description/universe/entry/exit/params
+- **v0.2** — `entry.logic` (and/or), indicator-name tunable keys, `market_rules`
+- **v0.3** — `entry.execution` (timing + slippage), `meta.preferred_regime`, composite conditions standardized to `StrategyCondition`
+
+---
+
+> ⚠️ **Disclaimer**: This project is for educational and research purposes only. It does not constitute investment advice. Past strategy performance does not guarantee future results.

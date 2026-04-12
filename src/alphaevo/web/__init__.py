@@ -1,0 +1,41 @@
+"""Web-ready contracts reserved for future API and frontend integration."""
+
+from alphaevo.web.contracts import (
+    EvaluationSummaryView,
+    EvolutionJobRequest,
+    EvolutionRoundView,
+    EvolutionSessionView,
+    ResearchEventView,
+    RunJobRequest,
+    RunSummaryView,
+    StrategyCardView,
+    WebCapabilityFlags,
+    WebManifest,
+    WebRouteSpec,
+    build_evaluation_summary,
+    build_evolution_session,
+    build_research_feed,
+    build_run_summary,
+    build_strategy_card,
+    default_web_manifest,
+)
+
+__all__ = [
+    "WebCapabilityFlags",
+    "WebRouteSpec",
+    "WebManifest",
+    "RunJobRequest",
+    "EvolutionJobRequest",
+    "EvaluationSummaryView",
+    "StrategyCardView",
+    "RunSummaryView",
+    "EvolutionRoundView",
+    "EvolutionSessionView",
+    "ResearchEventView",
+    "default_web_manifest",
+    "build_evaluation_summary",
+    "build_strategy_card",
+    "build_run_summary",
+    "build_evolution_session",
+    "build_research_feed",
+]

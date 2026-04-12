@@ -1,0 +1,104 @@
+meta:
+  id: sector_rotation_leader_v1
+  name: 板块轮动龙头跟随
+  version: 1
+  parent_id: null
+  created_at: '2026-03-31'
+  market: a_share
+  category: rotation
+  tags:
+  - 板块轮动
+  - 龙头
+  - 资金流向
+  preferred_regime:
+  - trending_up
+  - volatile
+  experimental: true
+description: '适用市场：结构性行情
+
+  核心逻辑：
+
+  1. 资金从旧主线切到新主线（板块热度连续2日上升且排名进入前10）
+
+  2. 板块内个股相对板块指数强度突出（板块内排名前20%）
+
+  3. 个股流通市值适中（不是超大盘也不是超小盘）
+
+  4. 短期均线走平或向上（MA5 >= MA10 或 MA5 正在上穿 MA10）
+
+  5. 板块主线资金持续性确认（连续2天以上资金净流入）
+
+  买入条件：板块轮动确认 + 个股相对强度突出
+
+  止损条件：板块退出前10 或个股跌破MA10
+
+  止盈条件：板块热度开始下降时分批退出
+
+  '
+universe:
+  market:
+  - a_share_main
+  filters:
+  - field: market_cap
+    op: '>='
+    value: 5000000000
+  - field: market_cap
+    op: <=
+    value: 200000000000
+entry:
+  logic: and
+  conditions:
+  - indicator: sector_heat_rank
+    op: <=
+    value: 10
+  - indicator: sector_heat_rising_days
+    op: '>='
+    value: 2
+  - indicator: intra_sector_strength_rank_pct
+    op: <=
+    value: 0.2
+  - indicator: ma5_ge_ma10_or_crossing
+    op: ==
+    value: true
+  filters:
+  - indicator: sector_net_inflow_days
+    op: '>='
+    value: 2
+  - indicator: st_flag
+    op: ==
+    value: false
+exit:
+  stop_loss:
+    type: composite
+    conditions:
+    - indicator: sector_heat_rank
+      op: '>'
+      value: 10
+    - indicator: close_below_ma10
+      op: ==
+      value: true
+  take_profit:
+    type: trailing
+    trigger_pct: 0.08
+    trail_pct: 0.04
+  max_holding_days: 15
+params:
+  tunable:
+  - target: entry.conditions[indicator=sector_heat_rank].value
+    range:
+    - 5
+    - 20
+    step: 1
+    label: 板块热度排名阈值
+  - target: entry.conditions[indicator=intra_sector_strength_rank_pct].value
+    range:
+    - 0.1
+    - 0.3
+    step: 0.05
+    label: 板块内强度排名百分位
+  - target: exit.take_profit.trigger_pct
+    range:
+    - 0.05
+    - 0.15
+    step: 0.01
+    label: 移动止盈触发比例
