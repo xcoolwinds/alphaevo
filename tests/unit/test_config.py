@@ -24,6 +24,7 @@ class TestAppConfig:
         assert config.data.adapter == "yfinance"
         assert config.backtest.slippage == 0.001
         assert config.backtest.commission == 0.0003
+        assert config.backtest.fill_policy == "conservative"
         assert config.backtest.walk_forward_folds == 3
         assert config.backtest.walk_forward_train_pct == 0.7
         assert config.backtest.walk_forward_pass_gap == 0.10
@@ -129,6 +130,7 @@ class TestConfigManager:
         monkeypatch.setenv("ALPHAEVO_BACKTEST_WALK_FORWARD_FOLDS", "4")
         monkeypatch.setenv("ALPHAEVO_BACKTEST_WALK_FORWARD_TRAIN_PCT", "0.75")
         monkeypatch.setenv("ALPHAEVO_BACKTEST_WALK_FORWARD_PASS_GAP", "0.08")
+        monkeypatch.setenv("ALPHAEVO_BACKTEST_FILL_POLICY", "close_first")
         monkeypatch.setenv("ALPHAEVO_BACKTEST_STRESS_WINDOW_DAYS", "15")
         monkeypatch.setenv("ALPHAEVO_BACKTEST_STRESS_WINDOW_TOP_K", "2")
         mgr = ConfigManager()
@@ -138,6 +140,7 @@ class TestConfigManager:
         assert config.backtest.walk_forward_folds == 4
         assert config.backtest.walk_forward_train_pct == 0.75
         assert config.backtest.walk_forward_pass_gap == 0.08
+        assert config.backtest.fill_policy == "close_first"
         assert config.backtest.stress_window_days == 15
         assert config.backtest.stress_window_top_k == 2
 

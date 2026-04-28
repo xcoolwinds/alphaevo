@@ -8,7 +8,7 @@ from typing import Any
 from alphaevo.models.strategy import Strategy, StrategyCondition
 
 _CONDITION_TARGET_RE = re.compile(
-    r"entry\.(conditions|filters)\[(\d+|indicator=[^]]+)\]\."
+    r"entry\.(conditions|filters|triggers|guards)\[(\d+|indicator=[^]]+)\]\."
     r"(value|indicator(?:\.(?:fast|slow|signal|std))?)"
 )
 _PERIOD_TARGET_RE = re.compile(r"\.indicator(?:\.(?:fast|slow|signal|std))?$")
@@ -78,6 +78,8 @@ def resolve_tunable_target(strategy: Strategy, target: str) -> Any:
         return strategy.exit.take_profit.trigger_pct
     if target == "exit.take_profit.trail_pct":
         return strategy.exit.take_profit.trail_pct
+    if target == "exit.max_holding_days":
+        return strategy.exit.max_holding_days
     return None
 
 
@@ -145,6 +147,12 @@ def set_tunable_target(strategy: Strategy, target: str, new_value: Any) -> bool:
             strategy.exit.take_profit.trail_pct = float(new_value)
         except (TypeError, ValueError):
             return False
+        return True
+    if target == "exit.max_holding_days":
+        days = _coerce_positive_period(new_value)
+        if days is None:
+            return False
+        strategy.exit.max_holding_days = days
         return True
     return False
 
@@ -312,7 +320,7 @@ def _resolve_condition_target(
         return None
 
     bucket_name, selector, field = match.groups()
-    bucket = strategy.entry.conditions if bucket_name == "conditions" else strategy.entry.filters
+    bucket = getattr(strategy.entry, bucket_name)
 
     if selector.isdigit():
         index = int(selector)
@@ -437,7 +445,11 @@ def _period_component(field: str) -> str | None:
 
 def is_integer_tunable_target(target: str) -> bool:
     """Return True when a tunable target should be quantized to an integer."""
-    return is_period_tunable_target(target) and not target.endswith(".indicator.std")
+    return (
+        target == "exit.max_holding_days"
+        or is_period_tunable_target(target)
+        and not target.endswith(".indicator.std")
+    )
 
 
 def _retarget_condition_tunables(strategy: Strategy, old: str, new: str) -> None:

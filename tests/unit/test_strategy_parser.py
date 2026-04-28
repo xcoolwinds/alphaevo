@@ -66,6 +66,8 @@ class TestStrategyParser:
             "entry.conditions[indicator=ma5_ge_ma10_or_crossing].indicator.slow" in tunable_targets
         )
         assert "entry.conditions[indicator=close_above_ma20].indicator" in tunable_targets
+        assert "entry.conditions[indicator=rsi_14].indicator" in tunable_targets
+        assert "exit.max_holding_days" in tunable_targets
 
     def test_parse_invalid_yaml(self) -> None:
         with pytest.raises(StrategyParseError):
@@ -191,6 +193,43 @@ params:
       step: 5
     - target: exit.take_profit.target
       range: [20, 120]
+      step: 5
+"""
+        strategy = self.parser.parse_yaml(yaml_content)
+        diagnostics = self.parser.diagnose(strategy)
+        assert diagnostics.errors == []
+
+    def test_tunable_entry_triggers_and_guards_are_valid(self) -> None:
+        yaml_content = """
+meta:
+  id: tunable_entry_v5
+  name: Tunable Entry v5
+  version: 1
+  category: trend
+description: test
+entry:
+  triggers:
+    - indicator: rsi_14
+      op: "<"
+      value: 30
+  guards:
+    - indicator: relative_strength_20d
+      op: ">"
+      value: 0.08
+exit:
+  stop_loss:
+    type: pct
+    value: 0.04
+  take_profit:
+    type: rr
+    value: 2.0
+params:
+  tunable:
+    - target: entry.triggers[indicator=rsi_14].value
+      range: [20, 40]
+      step: 1
+    - target: entry.guards[indicator=relative_strength_20d].indicator
+      range: [10, 60]
       step: 5
 """
         strategy = self.parser.parse_yaml(yaml_content)

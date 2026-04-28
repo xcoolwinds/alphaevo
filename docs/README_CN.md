@@ -68,8 +68,13 @@ Round 4 │ v4 │ 胜率: 85%   信号: 27  │ 评分: 55.2%  ↓ -1.0%
 | 目标 | 命令 | 数据 | 是否需要 LLM |
 |------|------|------|---------------|
 | 30 秒体验 | `alphaevo demo` | 合成数据 | 否 |
+| 一句话策略转可执行 YAML | `alphaevo strategy draft "<idea>" --save` | 无 | 否 |
+| 一句话策略直接起草、回测、优化 | `alphaevo strategy research "<idea>"` | 真实数据 | 否 |
+| 按想法修订已有策略并验证 | `alphaevo strategy improve <id> "<改法>"` | 真实数据 | 否 |
 | 真实市场数据冒烟验证 | `alphaevo demo --real` | yfinance / akshare | 否 |
 | 更完整的真实数据回测 | `alphaevo run ma_crossover_v1` | yfinance | 否 |
+| 优化买点阈值和卖点/风控规则 | `alphaevo optimize <id> --spaces entry,params,indicator,exit,stoploss,takeprofit,holding` | 真实数据 | 否 |
+| 按质量门槛筛选 50%+ 胜率 | `alphaevo optimize <id> --objective win_rate --min-win-rate 0.5 --min-avg-return 0 --min-profit-loss-ratio 1.0 --max-drawdown 0.35 --min-signals 30 --param-max-changes 2 --max-values-per-param 8 --evaluation-mode fast --full-eval-top 5` | 真实数据 | 否 |
 | 旗舰研究智能体路径 | `alphaevo evolve <id> --method llm --output reports/` | 真实数据 | 是 |
 
 真实数据命令需要额外安装数据适配器：默认美股流程装 `pip install -e ".[data-yfinance]"`，A 股装 `pip install -e ".[data-akshare]"`，两者都要就装 `pip install -e ".[data-full]"`。
@@ -183,10 +188,12 @@ description: |
   当日放量1.5倍以上。
 
 entry:
-  conditions:
+  logic: and
+  triggers:
     - indicator: relative_strength_20d
       op: ">"
       value: 0.12
+  guards:
     - indicator: ma5_above_ma10
       op: "=="
       value: true
@@ -195,6 +202,10 @@ entry:
       value: 1.5
 
 exit:
+  triggers:
+    - indicator: close_below_ma10
+      op: "=="
+      value: true
   stop_loss:
     type: atr
     atr_period: 21
@@ -206,7 +217,7 @@ exit:
 
 params:
   tunable:
-    - target: entry.conditions[indicator=relative_strength_20d].value
+    - target: entry.triggers[indicator=relative_strength_20d].value
       range: [0.05, 0.20]
       step: 0.01
 ```
@@ -221,6 +232,10 @@ alphaevo init                         # 交互式初始化配置
 
 # 策略管理
 alphaevo strategy create              # 交互式创建策略（需要 LLM）
+alphaevo strategy draft "<idea>"      # 一句话策略生成可执行 YAML（无需 LLM）
+alphaevo strategy research "<idea>"   # 一句话策略→保存→回测→入口/退出优化（无需 LLM）
+alphaevo strategy revise <id> "<改法>" # 对已有策略做规则化修订（无需 LLM）
+alphaevo strategy improve <id> "<改法>" # 修订已有策略→保存→回测→建议/可选优化（无需 LLM）
 alphaevo strategy list                # 列出所有策略
 alphaevo strategy show <id>           # 查看策略详情
 alphaevo strategy import <file>       # 导入策略 YAML 文件
@@ -229,6 +244,19 @@ alphaevo strategy diff <id1> <id2>    # 比较两个策略 DSL 差异
 
 # 核心闭环
 alphaevo run <strategy_id>            # 运行完整闭环（采样→回测→评估→报告）
+alphaevo optimize <strategy_id>       # 优化买点阈值、指标周期、卖点/风控规则
+  --spaces entry,params,indicator,exit,stoploss,takeprofit,holding,all
+  --objective win_rate                #   可选: confidence / win_rate / avg_return / drawdown
+  --min-win-rate 0.5                  #   50% 胜率门槛
+  --min-avg-return 0                  #   过滤负期望候选
+  --min-profit-loss-ratio 1.0         #   过滤盈亏比过低的候选
+  --max-drawdown 0.35                 #   最大回撤门槛
+  --min-signals 30                    #   最小信号数门槛
+  --param-max-changes 2               #   参数组合搜索深度
+  --max-values-per-param 8            #   每个参数最多测试的候选值
+  --evaluation-mode fast              #   候选评估: fast / full
+  --full-eval-top 5                   #   fast 模式下完整复评前 N 名
+  --fill-policy conservative          #   同 K 线止损/止盈冲突处理
 alphaevo evolve <strategy_id>         # 进化策略（需要 LLM）
   --rounds 3                          #   进化轮数
   --method llm                        #   进化方法: llm / param_search / hybrid

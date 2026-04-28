@@ -55,7 +55,9 @@ class StrategyEntry(BaseModel):
     """Entry conditions for a strategy."""
 
     logic: Literal["and", "or"] = "and"
-    conditions: list[StrategyCondition]
+    triggers: list[StrategyCondition] = Field(default_factory=list)
+    guards: list[StrategyCondition] = Field(default_factory=list)
+    conditions: list[StrategyCondition] = Field(default_factory=list)
     filters: list[StrategyCondition] = Field(default_factory=list)
     execution: ExecutionConfig | None = None
 
@@ -84,6 +86,7 @@ class TakeProfitConfig(BaseModel):
 class StrategyExit(BaseModel):
     """Exit rules for a strategy."""
 
+    triggers: list[StrategyCondition] = Field(default_factory=list)
     stop_loss: StopLossConfig
     take_profit: TakeProfitConfig
     max_holding_days: int = 10
@@ -108,7 +111,9 @@ class TunableParam(BaseModel):
     """Definition of a tunable parameter for evolution."""
 
     target: (
-        str  # e.g. "entry.conditions[indicator=rsi_14].value"
+        str  # e.g. "entry.triggers[indicator=rsi_14].value"
+        # or "entry.guards[indicator=relative_strength_20d].value"
+        # or "entry.conditions[indicator=rsi_14].value" (legacy)
         # or "...close_above_ma60].indicator"
         # or "...volume_ratio_1d_5d].indicator"
         # or "...relative_strength_20d].indicator"
@@ -179,9 +184,10 @@ class Strategy(BaseModel):
         """Auto-computed complexity penalty.
         More conditions = higher penalty. Used in anti-overfitting scoring.
         """
-        n_conditions = len(self.entry.conditions)
-        n_filters = len(self.entry.filters)
+        n_conditions = len(self.entry.conditions) + len(self.entry.triggers)
+        n_filters = len(self.entry.filters) + len(self.entry.guards)
         n_exit_rules = 1  # base
+        n_exit_rules += len(self.exit.triggers)
         if self.exit.stop_loss.conditions:
             n_exit_rules += len(self.exit.stop_loss.conditions)
         total = n_conditions + n_filters + n_exit_rules
@@ -224,7 +230,12 @@ class Strategy(BaseModel):
         )
 
         key_indicators: list[str] = []
-        for condition in [*self.entry.conditions, *self.entry.filters]:
+        for condition in [
+            *self.entry.triggers,
+            *self.entry.conditions,
+            *self.entry.guards,
+            *self.entry.filters,
+        ]:
             if condition.indicator not in key_indicators:
                 key_indicators.append(condition.indicator)
 

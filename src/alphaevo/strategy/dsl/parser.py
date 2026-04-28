@@ -114,8 +114,8 @@ class StrategyParser:
         """Return semantic validation errors and warnings separately."""
         diagnostics = ValidationDiagnostics()
 
-        if not strategy.entry.conditions:
-            diagnostics.warnings.append("Strategy has no entry conditions")
+        if not strategy.entry.conditions and not strategy.entry.triggers:
+            diagnostics.warnings.append("Strategy has no entry conditions or triggers")
 
         if strategy.exit.max_holding_days < 1:
             diagnostics.errors.append("max_holding_days must be >= 1")
@@ -157,7 +157,10 @@ class StrategyParser:
 
         all_conditions = (
             strategy.entry.conditions
+            + strategy.entry.triggers
             + strategy.entry.filters
+            + strategy.entry.guards
+            + strategy.exit.triggers
             + (strategy.exit.stop_loss.conditions or [])
         )
         for condition in all_conditions:
@@ -180,8 +183,14 @@ class StrategyParser:
                     f"Tunable param '{param.target}': target does not resolve to a tunable value"
                 )
 
-        if len(strategy.entry.conditions) > 8:
-            diagnostics.warnings.append("Strategy has > 8 entry conditions — high overfitting risk")
+        entry_rule_count = (
+            len(strategy.entry.triggers)
+            + len(strategy.entry.conditions)
+            + len(strategy.entry.guards)
+            + len(strategy.entry.filters)
+        )
+        if entry_rule_count > 8:
+            diagnostics.warnings.append("Strategy has > 8 entry rules — high overfitting risk")
 
         return diagnostics
 
@@ -204,13 +213,14 @@ class StrategyParser:
         if target in self._SUPPORTED_EXIT_TARGETS:
             return True
         if re.fullmatch(
-            r"entry\.(conditions|filters)\[\d+\]\.(value|indicator(?:\.(?:fast|slow|signal|std))?)",
+            r"entry\.(conditions|filters|triggers|guards)\[\d+\]\."
+            r"(value|indicator(?:\.(?:fast|slow|signal|std))?)",
             target,
         ):
             return True
         return bool(
             re.fullmatch(
-                r"entry\.(conditions|filters)\[indicator=[^]]+\]\."
+                r"entry\.(conditions|filters|triggers|guards)\[indicator=[^]]+\]\."
                 r"(value|indicator(?:\.(?:fast|slow|signal|std))?)",
                 target,
             )
@@ -251,13 +261,17 @@ class StrategyParser:
 
     def _build_entry(self, raw: dict[str, Any]) -> StrategyEntry:
         conditions = [StrategyCondition(**c) for c in raw.get("conditions", [])]
+        triggers = [StrategyCondition(**c) for c in raw.get("triggers", [])]
         filters = [StrategyCondition(**f) for f in raw.get("filters", [])]
+        guards = [StrategyCondition(**f) for f in raw.get("guards", [])]
         logic = raw.get("logic", "and")
         execution = None
         if "execution" in raw and isinstance(raw["execution"], dict):
             execution = ExecutionConfig(**raw["execution"])
         return StrategyEntry(
             logic=logic,
+            triggers=triggers,
+            guards=guards,
             conditions=conditions,
             filters=filters,
             execution=execution,
@@ -286,6 +300,7 @@ class StrategyParser:
             sl_raw = {**sl_raw, "conditions": normalized}
 
         return StrategyExit(
+            triggers=[StrategyCondition(**c) for c in raw.get("triggers", [])],
             stop_loss=StopLossConfig(**sl_raw),
             take_profit=TakeProfitConfig(**tp_raw),
             max_holding_days=raw.get("max_holding_days", 10),

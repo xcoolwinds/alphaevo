@@ -77,14 +77,16 @@ Rules:
 - Prefer currently available indicators instead of inventing new ones
 - For supported indicator families, any positive integer window is allowed when the name follows the documented templates (maN/maM, atr_N, rsi_N, macd_histogram_fastN_slowM_signalK, macd_cross_bullish_fastN_slowM_signalK, bollinger_band_width_Nd, bollinger_band_width_Nd_stdS, price_above_bollinger_upper_Nd, price_above_bollinger_upper_Nd_stdS, price_below_bollinger_lower_Nd, price_below_bollinger_lower_Nd_stdS, volume_ratio_1d_Nd, momentum_Nd, avg_volume_Nd, days_since_high_Nd, days_since_low_Nd, volatility_Nd, relative_strength_Nd)
 - Always include stop_loss and take_profit
+- Prefer entry.triggers for the actual buy event and entry.guards for hard filters. For backward compatibility, entry.conditions/entry.filters are also valid.
+- Use exit.triggers when the user describes an explicit sell/exit signal (for example close_below_ma10 or rsi_14 > 75). exit.triggers uses the same list item schema as entry.conditions.
 - Include at least 2 tunable parameters
-- If a strategy depends heavily on indicator windows, you may tune the period itself via targets like entry.conditions[indicator=close_above_ma60].indicator, entry.conditions[indicator=rsi_14].indicator, entry.conditions[indicator=volume_ratio_1d_5d].indicator, entry.conditions[indicator=relative_strength_20d].indicator, entry.conditions[indicator=ma5_ge_ma10_or_crossing].indicator.fast, entry.conditions[indicator=ma5_ge_ma10_or_crossing].indicator.slow, entry.conditions[indicator=macd_histogram].indicator.fast, entry.conditions[indicator=macd_histogram].indicator.slow, entry.conditions[indicator=macd_histogram].indicator.signal, entry.conditions[indicator=bollinger_band_width].indicator, entry.conditions[indicator=bollinger_band_width].indicator.std, or exit.take_profit.target
+- If a strategy depends heavily on indicator windows, you may tune the period itself via targets like entry.triggers[indicator=rsi_14].indicator, entry.guards[indicator=relative_strength_20d].indicator, entry.conditions[indicator=close_above_ma60].indicator, entry.conditions[indicator=ma5_ge_ma10_or_crossing].indicator.fast, entry.triggers[indicator=macd_histogram].indicator.signal, entry.guards[indicator=bollinger_band_width].indicator.std, or exit.take_profit.target
 - preferred_regime should match the strategy style
 - meta.name is required
 - meta.preferred_regime must be a YAML list, e.g. [trending_up]
 - universe.filters must be a YAML list of objects with exactly: field, op, value
-- entry.conditions and entry.filters must be YAML lists of objects with exactly: indicator, op, value
-- params.tunable[*].target must keep the full selector path, e.g. entry.conditions[indicator=rsi_14].value
+- entry.triggers, entry.guards, entry.conditions, and entry.filters must be YAML lists of objects with exactly: indicator, op, value
+- params.tunable[*].target must keep the full selector path, e.g. entry.triggers[indicator=rsi_14].value
 - If an optional section is hard to express correctly, simplify or omit it instead of inventing a new schema
 - Description must explain the logic clearly
 """

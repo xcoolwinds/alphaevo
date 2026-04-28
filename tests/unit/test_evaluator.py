@@ -137,6 +137,28 @@ def _market_data() -> dict[str, pd.DataFrame]:
     }
 
 
+def test_evaluate_fast_keeps_gate_metrics_without_heavy_diagnostics() -> None:
+    result = BacktestResult(
+        strategy_id="eval_test_v1",
+        batch_id="batch",
+        signals=[
+            _signal(0.03),
+            _signal(-0.01),
+            _signal(0.02),
+            _signal(-0.02),
+        ],
+    )
+
+    report = Evaluator().evaluate_fast(result, _strategy())
+
+    assert report.overall.signal_count == 4
+    assert report.overall.win_rate == 0.5
+    assert report.confidence_score > 0
+    assert report.benchmark is None
+    assert report.walk_forward == []
+    assert report.cpcv is None
+
+
 class TestEvaluatorMetrics:
     def setup_method(self) -> None:
         self.evaluator = Evaluator()
@@ -580,6 +602,36 @@ class TestParamSensitivity:
 
         assert s.entry.conditions[0].indicator == "close_above_ma55"
         assert s.exit.take_profit.target == "ma50"
+
+    def test_resolve_and_set_tunable_entry_triggers_and_guards(self) -> None:
+        s = _strategy()
+        s.entry.triggers = [StrategyCondition(indicator="rsi_14", op="<", value=30)]
+        s.entry.guards = [
+            StrategyCondition(indicator="relative_strength_20d", op=">", value=0.08)
+        ]
+        s.params = StrategyParams(
+            tunable=[
+                TunableParam(
+                    target="entry.triggers[indicator=rsi_14].value",
+                    range=[20, 40],
+                    step=1,
+                ),
+                TunableParam(
+                    target="entry.guards[indicator=relative_strength_20d].indicator",
+                    range=[10, 60],
+                    step=5,
+                ),
+            ]
+        )
+
+        assert self.evaluator._resolve_tunable(s, s.params.tunable[0]) == 30
+        assert self.evaluator._resolve_tunable(s, s.params.tunable[1]) == 20
+
+        self.evaluator._set_tunable(s, s.params.tunable[0], 32)
+        self.evaluator._set_tunable(s, s.params.tunable[1], 30)
+
+        assert s.entry.triggers[0].value == 32
+        assert s.entry.guards[0].indicator == "relative_strength_30d"
 
     def test_resolve_and_set_tunable_dual_ma_periods(self) -> None:
         s = _strategy()

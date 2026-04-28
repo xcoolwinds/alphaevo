@@ -207,11 +207,18 @@ class PatternLibrary:
         sid = strategy.meta.id
         cat = strategy.meta.category
 
+        entry_rules = [
+            *strategy.entry.triggers,
+            *strategy.entry.conditions,
+            *strategy.entry.guards,
+            *strategy.entry.filters,
+        ]
+
         # 1. Extract entry condition combos
-        if len(strategy.entry.conditions) >= 2:
+        if len(entry_rules) >= 2:
             entry_conds = [
                 {"indicator": c.indicator, "op": c.op, "value": c.value}
-                for c in strategy.entry.conditions
+                for c in entry_rules
             ]
             pattern = StrategyPattern(
                 pattern_id=f"entry_{sid}",
@@ -250,7 +257,7 @@ class PatternLibrary:
         patterns.append(exit_pattern)
 
         # 3. Extract indicator combination (which indicators work together)
-        indicators = sorted(set(c.indicator for c in strategy.entry.conditions))
+        indicators = sorted(set(c.indicator for c in entry_rules))
         if len(indicators) >= 2:
             ind_pattern = StrategyPattern(
                 pattern_id=f"indicators_{sid}",

@@ -6,6 +6,7 @@ import asyncio
 import logging
 from datetime import date
 from pathlib import Path
+from typing import TYPE_CHECKING, Literal, Protocol, cast
 
 import typer
 from rich.console import Console
@@ -16,8 +17,22 @@ from rich.text import Text
 
 from alphaevo.cli._helpers import _get_config
 
+if TYPE_CHECKING:
+    from alphaevo.models.execution import EvaluationReport
+    from alphaevo.models.strategy import Strategy
+
+OptimizationObjective = Literal["confidence", "win_rate", "avg_return", "drawdown"]
+OptimizationEvaluationMode = Literal["fast", "full"]
+
 logger = logging.getLogger(__name__)
 console = Console()
+
+
+class _OptimizationCandidateLike(Protocol):
+    candidate_id: str
+    strategy: Strategy
+    evaluation: EvaluationReport
+    passed_gate: bool
 
 
 def _write_strategy_yaml_artifacts(
@@ -92,6 +107,11 @@ def run_command(
     wf_folds: int | None = typer.Option(None, "--wf-folds", help="Walk-forward folds"),
     wf_train_pct: float | None = typer.Option(None, "--wf-train-pct", help="Walk-forward train %"),
     wf_pass_gap: float | None = typer.Option(None, "--wf-pass-gap", help="Walk-forward pass gap"),
+    fill_policy: str | None = typer.Option(
+        None,
+        "--fill-policy",
+        help="Intrabar stop/take-profit conflict policy: conservative/optimistic/close_first",
+    ),
     stress_window_days: int | None = typer.Option(
         None, "--stress-window-days", help="Stress window days"
     ),
@@ -110,6 +130,8 @@ def run_command(
         bt_overrides["walk_forward_train_pct"] = wf_train_pct
     if wf_pass_gap is not None:
         bt_overrides["walk_forward_pass_gap"] = wf_pass_gap
+    if fill_policy is not None:
+        bt_overrides["fill_policy"] = fill_policy
     if stress_window_days is not None:
         bt_overrides["stress_window_days"] = stress_window_days
     if stress_window_top_k is not None:
@@ -267,6 +289,455 @@ def run_command(
         console.print(f"\n📄 Report saved to: {result.report_path}")
 
 
+def _split_optimize_spaces(
+    raw_spaces: list[str] | None,
+) -> tuple[list[str] | None, list[str] | None, bool]:
+    """Split CLI optimize spaces between exit-grid and DSL-param optimizers."""
+    if raw_spaces is None:
+        return None, None, True
+
+    exit_spaces: list[str] = []
+    param_spaces: list[str] = []
+    run_param = False
+    param_all = False
+    exit_all = False
+
+    for space in raw_spaces:
+        key = space.strip().lower().replace("-", "_")
+        if key == "all":
+            exit_all = True
+            param_all = True
+            run_param = True
+            continue
+        param_space = _cli_param_space(key)
+        if param_space is not None:
+            run_param = True
+            if param_space == "all":
+                param_all = True
+            elif param_space not in param_spaces:
+                param_spaces.append(param_space)
+            continue
+        exit_spaces.append(space)
+
+    return (
+        None if exit_all else exit_spaces,
+        None if param_all else param_spaces,
+        run_param,
+    )
+
+
+def _cli_param_space(key: str) -> str | None:
+    aliases = {
+        "param": "all",
+        "params": "all",
+        "parameter": "all",
+        "parameters": "all",
+        "tunable": "all",
+        "tunables": "all",
+        "entry": "entry",
+        "buy": "entry",
+        "buy_signal": "entry",
+        "buytrigger": "entry",
+        "trigger": "entry",
+        "triggers": "entry",
+        "guard": "entry",
+        "guards": "entry",
+        "filter": "entry",
+        "filters": "entry",
+        "indicator": "indicator",
+        "period": "indicator",
+        "window": "indicator",
+        "lookback": "indicator",
+    }
+    return aliases.get(key)
+
+
+def optimize_command(
+    strategy_id: str = typer.Argument(..., help="Strategy ID to optimize"),
+    samples: int = typer.Option(60, "--samples", "-n", help="Max stock samples"),
+    start_date: str | None = typer.Option(None, "--start", help="Start date (YYYY-MM-DD)"),
+    end_date: str | None = typer.Option(None, "--end", help="End date (YYYY-MM-DD)"),
+    report_dir: str = typer.Option("reports", "--output", "-o", help="Report output directory"),
+    adapter: str | None = typer.Option(None, "--adapter", help="Data adapter override"),
+    sampling: str | None = typer.Option(None, "--sampling", help="Sampling method"),
+    fill_policy: str | None = typer.Option(
+        None,
+        "--fill-policy",
+        help="Intrabar stop/take-profit conflict policy: conservative/optimistic/close_first",
+    ),
+    spaces: str | None = typer.Option(
+        None,
+        "--spaces",
+        help="Comma-separated spaces: entry,params,indicator,exit,stoploss,takeprofit,holding,all",
+    ),
+    max_candidates: int = typer.Option(
+        128,
+        "--max-candidates",
+        help="Maximum candidates to evaluate",
+    ),
+    objective: str = typer.Option(
+        "confidence",
+        "--objective",
+        help="Ranking objective: confidence/win_rate/avg_return/drawdown",
+    ),
+    min_win_rate: float | None = typer.Option(
+        None,
+        "--min-win-rate",
+        help="Minimum win rate gate, e.g. 0.50",
+    ),
+    min_avg_return: float | None = typer.Option(
+        None,
+        "--min-avg-return",
+        help="Minimum average return gate, e.g. 0.0 to reject negative expectancy",
+    ),
+    min_profit_loss_ratio: float | None = typer.Option(
+        None,
+        "--min-profit-loss-ratio",
+        help="Minimum profit/loss ratio gate, e.g. 1.0",
+    ),
+    max_drawdown: float | None = typer.Option(
+        None,
+        "--max-drawdown",
+        help="Maximum drawdown gate, e.g. 0.30",
+    ),
+    min_signals: int | None = typer.Option(
+        None,
+        "--min-signals",
+        help="Minimum signal-count gate for qualified candidates",
+    ),
+    max_values_per_param: int = typer.Option(
+        5,
+        "--max-values-per-param",
+        help="Maximum tested values per tunable parameter",
+    ),
+    param_max_changes: int = typer.Option(
+        1,
+        "--param-max-changes",
+        help="Maximum params.tunable changes per parameter candidate",
+    ),
+    evaluation_mode: str = typer.Option(
+        "fast",
+        "--evaluation-mode",
+        help="Candidate evaluation mode: fast/full",
+    ),
+    full_eval_top: int = typer.Option(
+        5,
+        "--full-eval-top",
+        help="With fast mode, fully re-evaluate the top N candidates",
+    ),
+    save_best: bool = typer.Option(
+        False,
+        "--save-best",
+        help="Save the best candidate strategy into the strategy store",
+    ),
+) -> None:
+    """Optimize executable entry parameters plus exit/risk rules."""
+    overrides: dict = {}
+    if adapter:
+        overrides.setdefault("data", {})["adapter"] = adapter
+    if fill_policy is not None:
+        overrides.setdefault("backtest", {})["fill_policy"] = fill_policy
+    config = _get_config(overrides or None)
+
+    from alphaevo.models.enums import SamplingMethod
+
+    sampling_method: SamplingMethod | None = None
+    if sampling:
+        try:
+            sampling_method = SamplingMethod(sampling)
+        except ValueError:
+            console.print(f"[red]Unknown sampling method: {sampling}[/red]")
+            raise typer.Exit(1) from None
+
+    dr: tuple[date, date] | None = None
+    if start_date:
+        s = date.fromisoformat(start_date)
+        e = date.fromisoformat(end_date) if end_date else date.today()
+        if s > e:
+            console.print("[red]Error: --start date must be before --end date[/red]")
+            raise typer.Exit(1)
+        dr = (s, e)
+    elif end_date:
+        console.print("[red]Error: --end requires --start[/red]")
+        raise typer.Exit(1)
+
+    raw_spaces: list[str] | None = None
+    if spaces:
+        raw_spaces = [part.strip() for part in spaces.split(",") if part.strip()]
+    exit_spaces, param_spaces, run_param_optimizer = _split_optimize_spaces(raw_spaces)
+    run_exit_optimizer = exit_spaces is None or bool(exit_spaces)
+    objective_value = cast("OptimizationObjective", objective)
+    evaluation_mode_value = cast("OptimizationEvaluationMode", evaluation_mode)
+    gates_configured = any(
+        value is not None
+        for value in (
+            min_win_rate,
+            min_avg_return,
+            min_profit_loss_ratio,
+            max_drawdown,
+            min_signals,
+        )
+    )
+
+    if not run_exit_optimizer and not run_param_optimizer:
+        console.print("[red]No optimization spaces selected[/red]")
+        raise typer.Exit(1)
+
+    console.print(
+        Panel(
+            f"🧪 Optimizing strategy parameters for [cyan]{strategy_id}[/cyan]",
+            style="bold green",
+        )
+    )
+
+    from alphaevo.optimizer import (
+        ExitOptimizer,
+        ParamOptimizer,
+        export_best_param_strategy,
+        export_best_strategy,
+        render_exit_optimization_report,
+        render_param_optimization_report,
+    )
+    from alphaevo.orchestrator.pipeline import RunPipeline
+
+    pipeline = RunPipeline(config)
+    pipeline.ensure_builtin_strategies()
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Preparing baseline data...", total=None)
+
+        def on_progress(msg: str) -> None:
+            progress.update(task, description=msg)
+
+        run_kwargs: dict = {
+            "max_symbols": samples,
+            "date_range": dr,
+            "report_dir": None,
+            "on_progress": on_progress,
+        }
+        if sampling_method is not None:
+            run_kwargs["sampling_method"] = sampling_method
+
+        try:
+            baseline = asyncio.run(pipeline.run(strategy_id, **run_kwargs))
+        except ValueError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            raise typer.Exit(1) from None
+        except Exception as e:
+            logger.exception("Optimization baseline failed")
+            console.print(f"[red]Optimization baseline failed: {e}[/red]")
+            raise typer.Exit(1) from None
+
+        exit_result = None
+        if run_exit_optimizer:
+            progress.update(task, description="Searching exit/risk candidates...")
+            exit_optimizer = ExitOptimizer(
+                slippage=config.backtest.slippage,
+                commission=config.backtest.commission,
+                min_data_days=config.backtest.min_data_days,
+                fill_policy=config.backtest.fill_policy,
+                backtest_config=config.backtest,
+            )
+            try:
+                exit_result = exit_optimizer.optimize(
+                    baseline.strategy,
+                    baseline._data or {},
+                    baseline.batch,
+                    contexts=baseline._contexts,
+                    spaces=exit_spaces,
+                    max_candidates=max_candidates,
+                    objective=objective_value,
+                    evaluation_mode=evaluation_mode_value,
+                    full_eval_top_n=full_eval_top,
+                    min_win_rate=min_win_rate,
+                    min_avg_return=min_avg_return,
+                    min_profit_loss_ratio=min_profit_loss_ratio,
+                    max_drawdown=max_drawdown,
+                    min_signals=min_signals,
+                )
+            except ValueError as e:
+                console.print(f"[red]Exit optimization failed: {e}[/red]")
+                raise typer.Exit(1) from None
+
+        param_result = None
+        if run_param_optimizer:
+            progress.update(task, description="Searching tunable parameter candidates...")
+            param_optimizer = ParamOptimizer(
+                slippage=config.backtest.slippage,
+                commission=config.backtest.commission,
+                min_data_days=config.backtest.min_data_days,
+                fill_policy=config.backtest.fill_policy,
+                backtest_config=config.backtest,
+            )
+            try:
+                param_result = param_optimizer.optimize(
+                    baseline.strategy,
+                    baseline._data or {},
+                    baseline.batch,
+                    contexts=baseline._contexts,
+                    spaces=param_spaces,
+                    max_candidates=max_candidates,
+                    max_values_per_param=max_values_per_param,
+                    max_changes=param_max_changes,
+                    objective=objective_value,
+                    evaluation_mode=evaluation_mode_value,
+                    full_eval_top_n=full_eval_top,
+                    min_win_rate=min_win_rate,
+                    min_avg_return=min_avg_return,
+                    min_profit_loss_ratio=min_profit_loss_ratio,
+                    max_drawdown=max_drawdown,
+                    min_signals=min_signals,
+                )
+            except ValueError as e:
+                console.print(f"[red]Parameter optimization failed: {e}[/red]")
+                raise typer.Exit(1) from None
+
+    if exit_result is not None:
+        table = Table(title=f"🏁 Exit Optimization: {strategy_id}")
+        table.add_column("Rank", justify="right")
+        table.add_column("Candidate", style="cyan")
+        table.add_column("Confidence", justify="right")
+        table.add_column("Win Rate", justify="right")
+        table.add_column("Avg Return", justify="right")
+        table.add_column("P/L", justify="right")
+        table.add_column("Max DD", justify="right")
+        table.add_column("Signals", justify="right")
+        table.add_column("Gate", justify="center")
+        table.add_column("Eval", justify="center")
+        table.add_column("Changes")
+        for idx, exit_candidate in enumerate(exit_result.candidates[:10], start=1):
+            ev = exit_candidate.evaluation.overall
+            table.add_row(
+                str(idx),
+                exit_candidate.candidate_id,
+                f"{exit_candidate.evaluation.confidence_score:.1%}",
+                f"{ev.win_rate:.1%}",
+                f"{ev.avg_return:.2%}",
+                f"{ev.profit_loss_ratio:.2f}",
+                f"{ev.max_drawdown:.1%}",
+                str(ev.signal_count),
+                "PASS" if exit_candidate.passed_gate else "FAIL",
+                exit_candidate.evaluation_mode,
+                "; ".join(exit_candidate.changes),
+            )
+        console.print(table)
+        if gates_configured and exit_result.qualified_count == 0:
+            console.print(
+                "[yellow]No exit/risk candidate passed the configured quality gates.[/yellow]"
+            )
+
+    if param_result is not None:
+        table = Table(title=f"🎚 Parameter Optimization: {strategy_id}")
+        table.add_column("Rank", justify="right")
+        table.add_column("Candidate", style="cyan")
+        table.add_column("Confidence", justify="right")
+        table.add_column("Win Rate", justify="right")
+        table.add_column("Avg Return", justify="right")
+        table.add_column("P/L", justify="right")
+        table.add_column("Max DD", justify="right")
+        table.add_column("Signals", justify="right")
+        table.add_column("Gate", justify="center")
+        table.add_column("Eval", justify="center")
+        table.add_column("Changes")
+        for idx, param_candidate in enumerate(param_result.candidates[:10], start=1):
+            ev = param_candidate.evaluation.overall
+            table.add_row(
+                str(idx),
+                param_candidate.candidate_id,
+                f"{param_candidate.evaluation.confidence_score:.1%}",
+                f"{ev.win_rate:.1%}",
+                f"{ev.avg_return:.2%}",
+                f"{ev.profit_loss_ratio:.2f}",
+                f"{ev.max_drawdown:.1%}",
+                str(ev.signal_count),
+                "PASS" if param_candidate.passed_gate else "FAIL",
+                param_candidate.evaluation_mode,
+                "; ".join(param_candidate.changes),
+            )
+        console.print(table)
+        if gates_configured and param_result.qualified_count == 0:
+            console.print(
+                "[yellow]No tunable-parameter candidate passed the configured quality gates.[/yellow]"
+            )
+
+    out_path = Path(report_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    if exit_result is not None:
+        report_path = out_path / f"{strategy_id}_exit_optimization.md"
+        report_path.write_text(render_exit_optimization_report(exit_result), encoding="utf-8")
+        console.print(f"[green]✓[/green] Exit report saved to {report_path}")
+
+        best_path = export_best_strategy(exit_result, out_path)
+        if best_path is not None:
+            console.print(f"[green]✓[/green] Best exit strategy YAML: {best_path}")
+
+    if param_result is not None:
+        report_path = out_path / f"{strategy_id}_param_optimization.md"
+        report_path.write_text(render_param_optimization_report(param_result), encoding="utf-8")
+        console.print(f"[green]✓[/green] Parameter report saved to {report_path}")
+
+        best_path = export_best_param_strategy(param_result, out_path)
+        if best_path is not None:
+            console.print(f"[green]✓[/green] Best parameter strategy YAML: {best_path}")
+
+    best_candidates = [
+        candidate
+        for candidate in (
+            exit_result.best_candidate if exit_result is not None else None,
+            param_result.best_candidate if param_result is not None else None,
+        )
+        if candidate is not None
+    ]
+    best = (
+        max(
+            best_candidates,
+            key=lambda candidate: _optimization_candidate_sort_key(candidate, objective_value),
+        )
+        if best_candidates
+        else None
+    )
+    if save_best and best is not None and best.passed_gate:
+        pipeline.store.save(best.strategy)
+        console.print(f"[green]✓[/green] Saved best strategy: {best.candidate_id}")
+    elif save_best and best is not None:
+        console.print("[yellow]No qualified candidate passed the configured gates; nothing saved.[/yellow]")
+
+
+def _optimization_candidate_sort_key(
+    candidate: _OptimizationCandidateLike,
+    objective: OptimizationObjective,
+) -> tuple[float, float, float, float, float, int, float]:
+    evaluation = candidate.evaluation
+    ev = evaluation.overall
+    return (
+        1.0 if candidate.passed_gate else 0.0,
+        _optimization_objective_value(candidate, objective),
+        evaluation.confidence_score,
+        ev.avg_return,
+        ev.profit_loss_ratio,
+        ev.signal_count,
+        -ev.max_drawdown,
+    )
+
+
+def _optimization_objective_value(
+    candidate: _OptimizationCandidateLike,
+    objective: OptimizationObjective,
+) -> float:
+    ev = candidate.evaluation.overall
+    if objective == "win_rate":
+        return ev.win_rate
+    if objective == "avg_return":
+        return ev.avg_return
+    if objective == "drawdown":
+        return -ev.max_drawdown
+    return candidate.evaluation.confidence_score
+
+
 def evolve_command(
     strategy_id: str = typer.Argument(..., help="Strategy ID to evolve"),
     rounds: int = typer.Option(3, "--rounds", "-r", help="Evolution rounds"),
@@ -290,6 +761,11 @@ def evolve_command(
     wf_folds: int | None = typer.Option(None, "--wf-folds", help="Walk-forward folds"),
     wf_train_pct: float | None = typer.Option(None, "--wf-train-pct", help="Walk-forward train %"),
     wf_pass_gap: float | None = typer.Option(None, "--wf-pass-gap", help="Walk-forward pass gap"),
+    fill_policy: str | None = typer.Option(
+        None,
+        "--fill-policy",
+        help="Intrabar stop/take-profit conflict policy: conservative/optimistic/close_first",
+    ),
     stress_window_days: int | None = typer.Option(
         None, "--stress-window-days", help="Stress window days"
     ),
@@ -344,6 +820,8 @@ def evolve_command(
         bt_overrides["walk_forward_train_pct"] = wf_train_pct
     if wf_pass_gap is not None:
         bt_overrides["walk_forward_pass_gap"] = wf_pass_gap
+    if fill_policy is not None:
+        bt_overrides["fill_policy"] = fill_policy
     if stress_window_days is not None:
         bt_overrides["stress_window_days"] = stress_window_days
     if stress_window_top_k is not None:

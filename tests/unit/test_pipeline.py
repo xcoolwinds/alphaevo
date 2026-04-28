@@ -13,6 +13,7 @@ from alphaevo.core.config import AppConfig, BacktestConfig, DataConfig
 from alphaevo.models import (
     BacktestResult,
     EvaluationReport,
+    MarketContext,
     MarketType,
     OverallMetrics,
     SampleBatch,
@@ -327,6 +328,14 @@ class TestRunPipeline:
         mock_dm.get_stock_list = AsyncMock(return_value=_stock_list())
         mock_dm.get_history = AsyncMock(return_value=_make_ohlcv())
         mock_dm.get_index_data = AsyncMock(return_value=_make_benchmark_df())
+        mock_dm.get_market_context = AsyncMock(
+            return_value=MarketContext(
+                breadth=0.7,
+                sentiment_index=0.63,
+                sector_leaders=["Technology"],
+                sector_laggards=["Energy"],
+            )
+        )
         mock_dm.get_sector_data = AsyncMock(return_value=None)
         mock_dm.get_event_context = AsyncMock(return_value=None)
         pipeline._data_manager = mock_dm
@@ -342,9 +351,15 @@ class TestRunPipeline:
 
             await pipeline.run("test_strat_v1")
 
+        assert MockEngine.call_args.kwargs["fill_policy"] == "conservative"
         engine_kwargs = MockEngine.return_value.run.call_args.kwargs
         assert "contexts" in engine_kwargs
         assert set(engine_kwargs["contexts"].keys()) == {"AAPL", "MSFT"}
+        context = engine_kwargs["contexts"]["AAPL"].market_context
+        assert context is not None
+        assert context.breadth == 0.7
+        assert context.sentiment_index == 0.63
+        assert context.sector_leaders == ["Technology"]
         evaluator_kwargs = MockEvaluator.return_value.evaluate.call_args.kwargs
         assert evaluator_kwargs["market_data"].keys() == {"AAPL", "MSFT"}
         assert evaluator_kwargs["contexts"].keys() == {"AAPL", "MSFT"}

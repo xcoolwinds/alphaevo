@@ -76,7 +76,7 @@ Once registered, use them in YAML just like built-in indicators:
 
 ```yaml
 entry:
-  conditions:
+  triggers:
     - indicator: my_custom_indicator
       op: ">"
       value: 0.05

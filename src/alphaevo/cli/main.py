@@ -35,6 +35,7 @@ from alphaevo.cli.commands.evolution import (  # noqa: E402
     evolve_command,
     evolve_curriculum_command,
     evolve_islands_command,
+    optimize_command,
     run_command,
 )
 from alphaevo.cli.commands.factor import factor_app  # noqa: E402
@@ -46,6 +47,7 @@ app.add_typer(config_app, name="config")
 
 # Top-level commands delegated to command modules
 app.command("run")(run_command)
+app.command("optimize")(optimize_command)
 app.command("evolve")(evolve_command)
 app.command("evolve-islands")(evolve_islands_command)
 app.command("evolve-curriculum")(evolve_curriculum_command)

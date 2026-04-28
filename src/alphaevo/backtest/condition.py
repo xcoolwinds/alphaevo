@@ -87,9 +87,11 @@ class ConditionEvaluator:
         idx: int,
         ctx: IndicatorContext | None = None,
     ) -> bool:
-        """Evaluate full entry: conditions (AND/OR) + filters (always AND)."""
-        cond_ok = self.evaluate_group(entry.conditions, entry.logic, df, idx, ctx)
+        """Evaluate full entry: triggers/conditions + guards/filters."""
+        triggers = entry.triggers or entry.conditions
+        guards = [*entry.guards, *entry.filters]
+        cond_ok = self.evaluate_group(triggers, entry.logic, df, idx, ctx)
         if not cond_ok:
             return False
-        # Filters are always AND
-        return self.evaluate_group(entry.filters, "and", df, idx, ctx)
+        # Guards and filters are always AND
+        return self.evaluate_group(guards, "and", df, idx, ctx)

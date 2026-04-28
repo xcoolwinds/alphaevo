@@ -42,6 +42,7 @@ class BacktestConfig(BaseModel):
     slippage: float = 0.001
     commission: float = 0.0003
     default_timing: str = "next_open"  # next_open / close / breakout_high
+    fill_policy: str = "conservative"  # conservative / optimistic / close_first
     min_data_days: int = 30  # minimum trading days required for backtest
     walk_forward_folds: int = Field(default=3, ge=2)
     walk_forward_train_pct: float = Field(default=0.7, ge=0.5, lt=1.0)
@@ -91,6 +92,7 @@ _ENV_MAP: dict[str, str] = {
     "ALPHAEVO_BACKTEST_WALK_FORWARD_FOLDS": "backtest.walk_forward_folds",
     "ALPHAEVO_BACKTEST_WALK_FORWARD_TRAIN_PCT": "backtest.walk_forward_train_pct",
     "ALPHAEVO_BACKTEST_WALK_FORWARD_PASS_GAP": "backtest.walk_forward_pass_gap",
+    "ALPHAEVO_BACKTEST_FILL_POLICY": "backtest.fill_policy",
     "ALPHAEVO_BACKTEST_STRESS_WINDOW_DAYS": "backtest.stress_window_days",
     "ALPHAEVO_BACKTEST_STRESS_WINDOW_TOP_K": "backtest.stress_window_top_k",
     "ALPHAEVO_EVOLUTION_MIN_SIGNAL_COUNT": "evolution.min_signal_count",

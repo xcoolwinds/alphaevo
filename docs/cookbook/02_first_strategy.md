@@ -1,16 +1,35 @@
 # Creating Your First Strategy
 
-## Option A: From Natural Language (requires LLM)
+## Option A: From Natural Language (no LLM required)
 
 ```bash
-pip install alphaevo[llm]
-export ALPHAEVO_API_KEY=your-key-here
-
-alphaevo strategy create --market us
-# Prompt: "Buy when RSI drops below 30 and price is above 200-day MA"
+alphaevo strategy draft "Buy when RSI drops below 30 and price is above 200-day MA; sell when RSI recovers above 65" \
+  --market us \
+  --save
 ```
 
-AlphaEvo uses an LLM to convert your idea into a structured YAML DSL.
+AlphaEvo uses a deterministic strategy drafter to convert concise strategy
+ideas into executable YAML. For broader creative generation, use
+`alphaevo strategy create` with `alphaevo[llm]`.
+
+To draft, save, backtest, and run entry-parameter plus exit optimization in one command:
+
+```bash
+alphaevo strategy research "Buy when RSI drops below 30; sell when price breaks MA10; stop loss 3%; hold 5 days" \
+  --market us \
+  --adapter yfinance \
+  --samples 40
+```
+
+After reviewing the result, use `strategy improve` to apply a bounded revision
+and immediately validate the revised strategy:
+
+```bash
+alphaevo strategy improve my_first_strategy_v1 "reduce drawdown, add right-side confirmation, keep fewer trades" \
+  --samples 40 \
+  --optimize-params \
+  --optimize-exits
+```
 
 ## Option B: Write YAML Manually
 
@@ -26,20 +45,28 @@ meta:
   tags: [rsi, mean-reversion]
 
 description: |
-  Buy when RSI-14 drops below 30 (oversold).
-  Sell at 4% profit or 3% stop loss.
+  Buy when RSI-14 drops below 30 (oversold) while price stays above the 200-day MA.
+  Sell when RSI recovers above 65, at 4% profit, or at 3% stop loss.
 
 universe:
   market: [us]
 
 entry:
   logic: and
-  conditions:
+  triggers:
     - indicator: rsi_14
       op: "<"
       value: 30.0
+  guards:
+    - indicator: close_above_ma200
+      op: "=="
+      value: true
 
 exit:
+  triggers:
+    - indicator: rsi_14
+      op: ">"
+      value: 65
   stop_loss:
     type: pct
     value: 0.03

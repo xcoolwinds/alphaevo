@@ -444,6 +444,166 @@ class TestBacktestEngine:
         with pytest.raises(ValueError, match="Unknown indicators"):
             self.engine.run(strategy, {"S1": df}, batch)
 
+    def test_exit_trigger_closes_position_with_signal_reason(self) -> None:
+        """Explicit exit triggers should close long positions at the current close."""
+        df = _make_ohlcv(60, trend=0.003)
+        strategy = _make_strategy(
+            meta=StrategyMeta(
+                id="exit_trigger_v1",
+                name="Exit Trigger",
+                version=1,
+                market=MarketType.US,
+                category=StrategyCategory.TREND,
+            ),
+            entry=StrategyEntry(
+                conditions=[
+                    StrategyCondition(indicator="rsi_14", op=">", value=0),
+                ],
+            ),
+            exit=StrategyExit(
+                triggers=[
+                    StrategyCondition(indicator="rsi_14", op=">", value=0),
+                ],
+                stop_loss=StopLossConfig(type="pct", value=0.50),
+                take_profit=TakeProfitConfig(type="pct", value=1.00),
+                max_holding_days=20,
+            ),
+            market_rules={},
+        )
+        batch = SampleBatch(
+            batch_id="b",
+            strategy_id="exit_trigger_v1",
+            symbols=["S1"],
+            date_range=(date(2025, 1, 1), date(2025, 3, 1)),
+        )
+
+        result = self.engine.run(strategy, {"S1": df}, batch)
+
+        assert result.total_signals > 0
+        assert result.signals[0].exit_reason == ExitReason.SIGNAL
+        assert result.signals[0].holding_days == 0
+
+    def test_entry_triggers_and_guards_control_buy_signal(self) -> None:
+        """Entry triggers define the buy signal; guards remain hard filters."""
+        df = _make_ohlcv(60, trend=0.003)
+        strategy = _make_strategy(
+            meta=StrategyMeta(id="entry_trigger_v1", name="Entry Trigger", market=MarketType.US),
+            entry=StrategyEntry(
+                triggers=[StrategyCondition(indicator="rsi_14", op=">", value=0)],
+                guards=[StrategyCondition(indicator="rsi_14", op="<", value=0)],
+            ),
+            market_rules={},
+        )
+        batch = SampleBatch(
+            batch_id="entry_trigger",
+            strategy_id="entry_trigger_v1",
+            symbols=["S"],
+            date_range=(date(2025, 1, 1), date(2025, 3, 1)),
+        )
+
+        blocked = self.engine.run(strategy, {"S": df}, batch)
+        strategy.entry.guards = [StrategyCondition(indicator="rsi_14", op=">", value=0)]
+        allowed = self.engine.run(strategy, {"S": df}, batch)
+
+        assert blocked.total_signals == 0
+        assert allowed.total_signals > 0
+
+    def test_intrabar_conflict_defaults_to_conservative_stop_loss(self) -> None:
+        df = _make_ohlcv(60)
+        df.loc[31, ["open", "high", "low", "close"]] = [100.0, 110.0, 90.0, 106.0]
+        strategy = _make_strategy(
+            meta=StrategyMeta(id="conflict_v1", name="Conflict", market=MarketType.US),
+            entry=StrategyEntry(
+                conditions=[StrategyCondition(indicator="rsi_14", op=">", value=0)],
+            ),
+            exit=StrategyExit(
+                stop_loss=StopLossConfig(type="pct", value=0.05),
+                take_profit=TakeProfitConfig(type="pct", value=0.05),
+                max_holding_days=10,
+            ),
+            market_rules={},
+        )
+        batch = SampleBatch(
+            batch_id="conflict",
+            strategy_id="conflict_v1",
+            symbols=["S"],
+            date_range=(date(2025, 1, 1), date(2025, 3, 1)),
+        )
+
+        result = self.engine.run(strategy, {"S": df}, batch)
+
+        assert result.signals[0].exit_reason == ExitReason.STOP_LOSS
+        assert result.signals[0].exit_price == pytest.approx(95.0)
+
+    def test_intrabar_conflict_optimistic_uses_take_profit(self) -> None:
+        df = _make_ohlcv(60)
+        df.loc[31, ["open", "high", "low", "close"]] = [100.0, 110.0, 90.0, 94.0]
+        strategy = _make_strategy(
+            meta=StrategyMeta(id="conflict_v1", name="Conflict", market=MarketType.US),
+            entry=StrategyEntry(
+                conditions=[StrategyCondition(indicator="rsi_14", op=">", value=0)],
+            ),
+            exit=StrategyExit(
+                stop_loss=StopLossConfig(type="pct", value=0.05),
+                take_profit=TakeProfitConfig(type="pct", value=0.05),
+                max_holding_days=10,
+            ),
+            market_rules={},
+        )
+        batch = SampleBatch(
+            batch_id="conflict",
+            strategy_id="conflict_v1",
+            symbols=["S"],
+            date_range=(date(2025, 1, 1), date(2025, 3, 1)),
+        )
+        engine = BacktestEngine(
+            slippage=0.0,
+            commission=0.0,
+            min_data_days=15,
+            fill_policy="optimistic",
+        )
+
+        result = engine.run(strategy, {"S": df}, batch)
+
+        assert result.signals[0].exit_reason == ExitReason.TAKE_PROFIT
+        assert result.signals[0].exit_price == pytest.approx(105.0)
+
+    def test_intrabar_conflict_close_first_uses_bar_close_direction(self) -> None:
+        df = _make_ohlcv(60)
+        df.loc[31, ["open", "high", "low", "close"]] = [100.0, 110.0, 90.0, 106.0]
+        strategy = _make_strategy(
+            meta=StrategyMeta(id="conflict_v1", name="Conflict", market=MarketType.US),
+            entry=StrategyEntry(
+                conditions=[StrategyCondition(indicator="rsi_14", op=">", value=0)],
+            ),
+            exit=StrategyExit(
+                stop_loss=StopLossConfig(type="pct", value=0.05),
+                take_profit=TakeProfitConfig(type="pct", value=0.05),
+                max_holding_days=10,
+            ),
+            market_rules={},
+        )
+        batch = SampleBatch(
+            batch_id="conflict",
+            strategy_id="conflict_v1",
+            symbols=["S"],
+            date_range=(date(2025, 1, 1), date(2025, 3, 1)),
+        )
+        engine = BacktestEngine(
+            slippage=0.0,
+            commission=0.0,
+            min_data_days=15,
+            fill_policy="close_first",
+        )
+
+        result = engine.run(strategy, {"S": df}, batch)
+
+        assert result.signals[0].exit_reason == ExitReason.TAKE_PROFIT
+
+    def test_invalid_fill_policy_raises(self) -> None:
+        with pytest.raises(ValueError, match="fill_policy"):
+            BacktestEngine(fill_policy="unknown")
+
     def test_slippage_default_not_mutated_on_exception(self) -> None:
         """Per-strategy slippage override should not leak when run raises."""
 

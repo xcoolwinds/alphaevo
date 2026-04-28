@@ -15,6 +15,88 @@ alphaevo evolve trend_pullback_rebound_v1 --method llm --rounds 5
 alphaevo evolve trend_pullback_rebound_v1 --method param_search
 ```
 
+## Entry / Exit Optimization
+
+If you are starting from a plain-language idea, `strategy research` can draft,
+backtest, run entry-parameter and exit optimizers, and write a deterministic
+research advice report in one workflow:
+
+```bash
+alphaevo strategy research "RSI oversold rebound; sell when price breaks MA10; stop loss 3%; hold 5 days" \
+    --market us \
+    --samples 40
+```
+
+It writes:
+
+- `<strategy_id>.yaml`
+- `<strategy_id>_report.md`
+- `<strategy_id>_param_optimization.md`
+- `<strategy_id>_exit_optimization.md`
+- `<strategy_id>_research_advice.md`
+
+For an existing strategy, `strategy improve` applies a natural-language revision,
+saves the next version, backtests it, and writes the same advice report:
+
+```bash
+alphaevo strategy improve trend_pullback_rebound_v1 "reduce drawdown and add right-side confirmation" \
+    --samples 60 \
+    --optimize-params \
+    --optimize-exits
+```
+
+Use `optimize` when the strategy idea is already executable and you want to
+search better entry thresholds, indicator windows, sell triggers, stop-loss,
+take-profit, and holding rules without invoking an LLM.
+
+```bash
+alphaevo optimize trend_pullback_rebound_v1 \
+    --spaces entry,params,indicator,exit,stoploss,takeprofit,holding \
+    --objective win_rate \
+    --min-win-rate 0.5 \
+    --min-avg-return 0 \
+    --min-profit-loss-ratio 1.0 \
+    --max-drawdown 0.35 \
+    --min-signals 30 \
+    --param-max-changes 2 \
+    --max-values-per-param 8 \
+    --evaluation-mode fast \
+    --full-eval-top 5 \
+    --samples 80 \
+    --adapter akshare \
+    --fill-policy conservative \
+    --save-best
+```
+
+What it does:
+
+- runs one baseline sampling/data-fetch pass
+- reuses the same historical data for all candidates
+- searches executable `params.tunable` entry thresholds and indicator windows
+- can rank by `confidence`, `win_rate`, `avg_return`, or lower `drawdown`
+- can apply hard qualification gates such as
+  `--min-win-rate 0.5 --min-avg-return 0 --min-profit-loss-ratio 1.0 --max-drawdown 0.35 --min-signals 30`
+- can test parameter combinations with `--param-max-changes 2`
+- can widen the per-parameter value grid with `--max-values-per-param`
+- defaults to fast candidate evaluation and can fully re-evaluate the top candidates
+  with `--full-eval-top`
+- does not export or save a best-candidate YAML when qualification gates are configured
+  and no candidate passes them
+- searches explicit `exit.triggers`, stop loss, reward/risk take profit, and max holding days
+- ranks candidates by confidence score, signal count, average return, and lower drawdown
+- diagnoses exit quality with MFE/MAE, giveback, potentially sold-early trades,
+  late exits, effective stops, and take-profit truncation
+- writes `<strategy_id>_param_optimization.md`, `<strategy_id>_exit_optimization.md`,
+  and best-candidate YAML files
+
+This is intentionally narrower than `evolve`: it is for disciplined exit/risk
+and parameter research, not broad strategy rewriting.
+
+`--fill-policy` controls ambiguous candles where both stop loss and take profit
+are reachable intraday. Use `conservative` for research defaults, `optimistic`
+for upper-bound experiments, and `close_first` when you prefer the bar close to
+resolve the conflict.
+
 ## Runtime Controls
 
 AlphaEvo already exposes the main evolution controls at runtime.
@@ -28,6 +110,7 @@ alphaevo evolve trend_v1 \
     --start 2025-01-01 \
     --end 2025-12-31 \
     --adapter akshare \
+    --fill-policy conservative \
     --model openai/gpt-4o \
     --reflect-model openai/gpt-4o-mini
 ```
@@ -39,6 +122,7 @@ Available controls:
 - `--samples`: max sampled symbols per round
 - `--start` / `--end`: backtest window
 - `--adapter`: override data adapter
+- `--fill-policy`: `conservative`, `optimistic`, or `close_first` for same-candle stop/take-profit conflicts
 - `--model`: override the main LLM
 - `--reflect-model`: override the reflection model
 

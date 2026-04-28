@@ -34,15 +34,17 @@ meta:
 
 ```yaml
 entry:
-  logic: and                    # and | or — how to combine conditions
-  conditions:
+  logic: and                    # and | or — how to combine buy triggers
+  triggers:                     # Actual buy signals; falls back to conditions if empty
     - indicator: rsi_14         # Must be a registered indicator
       op: "<"                   # ==, !=, <, <=, >, >=
       value: 30.0
+  guards:                       # Hard filters, always AND
     - indicator: ma5_above_ma10
       op: "=="
       value: true
-  filters:                      # Always AND (all must pass)
+  conditions: []                # Backward-compatible legacy trigger field
+  filters:                      # Backward-compatible legacy guard field
     - indicator: negative_news_score
       op: "<"
       value: 0.4
@@ -51,10 +53,20 @@ entry:
     slippage: 0.001
 ```
 
+Prefer `triggers` for the event that should open a position and `guards` for
+market-quality or risk filters. Older strategies using `conditions` and
+`filters` still run unchanged: if `triggers` is empty, AlphaEvo uses
+`conditions` as the buy trigger group; `guards` and `filters` are both applied
+as hard AND filters.
+
 ## Exit Rules
 
 ```yaml
 exit:
+  triggers:
+    - indicator: close_below_ma10
+      op: "=="
+      value: true               # explicit sell signal, exits at current close
   stop_loss:
     type: pct                   # pct | atr | composite
     value: 0.04                 # 4% stop loss
@@ -63,6 +75,16 @@ exit:
     value: 2.0                  # 2:1 reward/risk
   max_holding_days: 10
 ```
+
+`exit.triggers` is for explicit sell logic such as "sell when price breaks MA10".
+It is evaluated while a position is open. If any trigger passes, the trade exits
+with `exit_reason=signal`. Stop loss and take profit are checked before these
+close-based sell triggers.
+
+If stop loss and take profit can both be touched in the same candle, AlphaEvo
+uses `backtest.fill_policy`: `conservative` assumes the stop fills first,
+`optimistic` assumes take profit fills first, and `close_first` resolves by the
+bar close relative to the entry price.
 
 ### Composite Stop Loss
 
@@ -109,7 +131,7 @@ print(IndicatorRegistry.available())
 ```yaml
 params:
   tunable:
-    - target: entry.conditions[indicator=rsi_14].value
+    - target: entry.triggers[indicator=rsi_14].value
       range: [20, 40]
       step: 5
     - target: exit.stop_loss.value

@@ -29,7 +29,7 @@ from alphaevo.models.execution import (
     SampleBatch,
     StrategyChange,
 )
-from alphaevo.models.strategy import MarketHypothesisAssessment, Strategy
+from alphaevo.models.strategy import MarketHypothesisAssessment, Strategy, StrategyCondition
 from alphaevo.orchestrator.pipeline import RunPipeline, RunResult
 from alphaevo.reflection.analyzer import ReflectionAnalyzer
 from alphaevo.reflection.critic import SelfCritic
@@ -1182,14 +1182,22 @@ class EvolutionPipeline:
     ) -> list[StrategyChange]:
         """Inject structural or cross-strategy changes when normal reflection stalls."""
         changes: list[StrategyChange] = []
+        entry_signals = _entry_signal_conditions(strategy)
+        entry_signal_bucket = _entry_signal_bucket_name(strategy)
         existing = {
-            condition.indicator for condition in strategy.entry.conditions + strategy.entry.filters
+            condition.indicator
+            for condition in (
+                strategy.entry.triggers
+                + strategy.entry.conditions
+                + strategy.entry.guards
+                + strategy.entry.filters
+            )
         }
 
         if (
             evaluation.overall.signal_count < self.config.evolution.min_signal_count
             and strategy.entry.logic == "and"
-            and len(strategy.entry.conditions) >= 2
+            and len(entry_signals) >= 2
         ):
             changes.append(
                 StrategyChange(
@@ -1203,14 +1211,14 @@ class EvolutionPipeline:
 
         if (
             evaluation.overall.signal_count < self.config.evolution.min_signal_count
-            and len(strategy.entry.conditions) >= 3
+            and len(entry_signals) >= 3
             and len(changes) < self.config.evolution.max_changes_per_round
         ):
-            removable = strategy.entry.conditions[-1].indicator
+            removable = entry_signals[-1].indicator
             changes.append(
                 StrategyChange(
                     change_type=ChangeType.REMOVE_CONDITION,
-                    target=f"entry.conditions[indicator={removable}]",
+                    target=f"entry.{entry_signal_bucket}[indicator={removable}]",
                     from_value=True,
                     to_value=None,
                     reason="Exploration mode: remove one entry condition to broaden the search space",
@@ -1220,7 +1228,7 @@ class EvolutionPipeline:
         if (
             evaluation.overall.win_rate < 0.45
             and strategy.entry.logic == "or"
-            and len(strategy.entry.conditions) >= 2
+            and len(entry_signals) >= 2
             and len(changes) < self.config.evolution.max_changes_per_round
         ):
             changes.append(
@@ -1247,7 +1255,7 @@ class EvolutionPipeline:
                     changes.append(
                         StrategyChange(
                             change_type=ChangeType.ADD_CONDITION,
-                            target="entry.conditions",
+                            target=f"entry.{entry_signal_bucket}",
                             from_value=None,
                             to_value=condition,
                             reason=(
@@ -1487,8 +1495,10 @@ class EvolutionPipeline:
     def _thesis_recovery_changes(self, strategy: Strategy) -> list[StrategyChange]:
         """Force structural exploration when the market thesis itself looks wrong."""
         changes: list[StrategyChange] = []
+        entry_signals = _entry_signal_conditions(strategy)
+        entry_signal_bucket = _entry_signal_bucket_name(strategy)
 
-        if strategy.entry.logic == "and" and len(strategy.entry.conditions) >= 2:
+        if strategy.entry.logic == "and" and len(entry_signals) >= 2:
             changes.append(
                 StrategyChange(
                     change_type=ChangeType.CHANGE_LOGIC,
@@ -1501,7 +1511,7 @@ class EvolutionPipeline:
                     ),
                 )
             )
-        elif strategy.entry.logic == "or" and len(strategy.entry.conditions) >= 2:
+        elif strategy.entry.logic == "or" and len(entry_signals) >= 2:
             changes.append(
                 StrategyChange(
                     change_type=ChangeType.CHANGE_LOGIC,
@@ -1515,12 +1525,12 @@ class EvolutionPipeline:
                 )
             )
 
-        if len(strategy.entry.conditions) >= 3:
-            removable = strategy.entry.conditions[-1].indicator
+        if len(entry_signals) >= 3:
+            removable = entry_signals[-1].indicator
             changes.append(
                 StrategyChange(
                     change_type=ChangeType.REMOVE_CONDITION,
-                    target=f"entry.conditions[indicator={removable}]",
+                    target=f"entry.{entry_signal_bucket}[indicator={removable}]",
                     from_value=True,
                     to_value=None,
                     reason=(
@@ -1535,23 +1545,27 @@ class EvolutionPipeline:
     def _parameter_recovery_changes(self, strategy: Strategy) -> list[StrategyChange]:
         """Simplify brittle strategies before trying more tuning."""
         changes: list[StrategyChange] = []
-        if strategy.entry.filters:
-            removable = strategy.entry.filters[-1].indicator
+        guard_bucket_name = _entry_guard_bucket_name(strategy)
+        guard_bucket = _entry_guard_conditions(strategy)
+        entry_signals = _entry_signal_conditions(strategy)
+        entry_signal_bucket = _entry_signal_bucket_name(strategy)
+        if guard_bucket:
+            removable = guard_bucket[-1].indicator
             changes.append(
                 StrategyChange(
                     change_type=ChangeType.REMOVE_CONDITION,
-                    target=f"entry.filters[indicator={removable}]",
+                    target=f"entry.{guard_bucket_name}[indicator={removable}]",
                     from_value=True,
                     to_value=None,
                     reason="Hypothesis lens: simplify the most recent filter to reduce brittle overfitting",
                 )
             )
-        elif len(strategy.entry.conditions) > 1:
-            removable = strategy.entry.conditions[-1].indicator
+        elif len(entry_signals) > 1:
+            removable = entry_signals[-1].indicator
             changes.append(
                 StrategyChange(
                     change_type=ChangeType.REMOVE_CONDITION,
-                    target=f"entry.conditions[indicator={removable}]",
+                    target=f"entry.{entry_signal_bucket}[indicator={removable}]",
                     from_value=True,
                     to_value=None,
                     reason="Hypothesis lens: remove one gating condition before stacking more parameter tweaks",
@@ -1832,7 +1846,7 @@ class EvolutionPipeline:
             f"Strategy '{strategy.meta.name}' has win_rate={evaluation.overall.win_rate:.1%}, "
             f"avg_return={evaluation.overall.avg_return:.2%}, "
             f"signals={evaluation.overall.signal_count}. "
-            f"Existing indicators: {[c.indicator for c in strategy.entry.conditions]}. "
+            f"Existing indicators: {_entry_indicator_names(strategy)}. "
             f"Goal: discover a new indicator that improves signal selectivity."
         )
 
@@ -1883,7 +1897,7 @@ class EvolutionPipeline:
             changes.append(
                 StrategyChange(
                     change_type=ChangeType.DISCOVER_FACTOR,
-                    target="entry.conditions",
+                    target=f"entry.{_entry_guard_bucket_name(strategy)}",
                     from_value=None,
                     to_value={
                         "indicator": factor_name,
@@ -1916,8 +1930,7 @@ class EvolutionPipeline:
         if evaluation.overall.signal_count < 10:
             return []
 
-        existing = {c.indicator for c in strategy.entry.conditions}
-        existing.update(c.indicator for c in strategy.entry.filters)
+        existing = set(_entry_indicator_names(strategy))
 
         # Candidate indicators by weakness type, with sensible defaults
         candidates_for_low_wr: list[tuple[str, str, float | bool]] = [
@@ -1947,7 +1960,7 @@ class EvolutionPipeline:
             return [
                 StrategyChange(
                     change_type=ChangeType.ADD_CONDITION,
-                    target="entry.conditions",
+                    target=f"entry.{_entry_guard_bucket_name(strategy)}",
                     from_value=None,
                     to_value={"indicator": indicator, "op": op, "value": value},
                     reason=f"Heuristic: add '{indicator}' filter to improve signal quality",
@@ -2262,3 +2275,37 @@ class EvolutionPipeline:
             proposed_changes=changes,
             reflection_summary="Parameter grid search adjustment",
         )
+
+
+def _entry_indicator_names(strategy: Strategy) -> list[str]:
+    """Return unique entry indicator names across new and legacy buckets."""
+    names: list[str] = []
+    for condition in (
+        strategy.entry.triggers
+        + strategy.entry.conditions
+        + strategy.entry.guards
+        + strategy.entry.filters
+    ):
+        if condition.indicator not in names:
+            names.append(condition.indicator)
+    return names
+
+
+def _entry_signal_bucket_name(strategy: Strategy) -> str:
+    """Return the preferred entry signal bucket name for this strategy."""
+    return "triggers" if strategy.entry.triggers else "conditions"
+
+
+def _entry_signal_conditions(strategy: Strategy) -> list[StrategyCondition]:
+    """Return the active buy-signal bucket, preserving legacy compatibility."""
+    return strategy.entry.triggers if strategy.entry.triggers else strategy.entry.conditions
+
+
+def _entry_guard_bucket_name(strategy: Strategy) -> str:
+    """Return the preferred hard-filter bucket name for this strategy."""
+    return "guards" if strategy.entry.guards or strategy.entry.triggers else "filters"
+
+
+def _entry_guard_conditions(strategy: Strategy) -> list[StrategyCondition]:
+    """Return the active hard-filter bucket, preserving legacy compatibility."""
+    return strategy.entry.guards if strategy.entry.guards or strategy.entry.triggers else strategy.entry.filters

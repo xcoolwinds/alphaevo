@@ -557,9 +557,9 @@ def _content_hash(steps: list[PlaybookStep]) -> str:
 
 def _categorize_target(target: str) -> str:
     """Categorize a change target into a high-level category."""
-    if "entry.conditions" in target:
+    if "entry.triggers" in target or "entry.conditions" in target:
         return "entry_condition"
-    if "entry.filters" in target:
+    if "entry.guards" in target or "entry.filters" in target:
         return "entry_filter"
     if "entry.logic" in target:
         return "entry_logic"

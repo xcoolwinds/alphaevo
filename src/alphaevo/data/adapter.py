@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from alphaevo.models.enums import MarketType
     from alphaevo.models.market import (
         EventContextSeries,
+        MarketContext,
         MarketSnapshot,
         RealTimeQuote,
         SectorInfo,
@@ -81,6 +82,14 @@ class DataAdapter(ABC):
         Providers that do not support event/news context should return ``None``.
         The returned series is expected to align to trading dates, not just sparse
         event timestamps, so it can be injected directly into backtest data.
+        """
+        return None
+
+    async def get_market_context(self, market: MarketType) -> MarketContext | None:
+        """Fetch optional market-wide context for the active market.
+
+        This is deliberately a coarse snapshot, not a historical series. Providers
+        should only return fields they can support without fabricating data.
         """
         return None
 
@@ -213,6 +222,17 @@ class DataManager:
             try:
                 context = await adapter.get_event_context(symbol, start, end)
                 if context is not None and context.records:
+                    return context
+            except Exception:
+                continue
+        return None
+
+    async def get_market_context(self, market: MarketType) -> MarketContext | None:
+        """Fetch market-wide context with adapter fallback."""
+        for adapter in self._adapters:
+            try:
+                context = await adapter.get_market_context(market)
+                if context is not None:
                     return context
             except Exception:
                 continue

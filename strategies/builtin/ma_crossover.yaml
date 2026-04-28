@@ -102,6 +102,12 @@ params:
     - 80
     step: 5
     label: RSI overbought filter
+  - target: entry.conditions[indicator=rsi_14].indicator
+    range:
+    - 7
+    - 21
+    step: 1
+    label: RSI lookback period
   - target: exit.stop_loss.value
     range:
     - 0.02
@@ -110,7 +116,13 @@ params:
     label: Stop loss percentage
   - target: exit.take_profit.value
     range:
-    - 2.0
+    - 0.8
     - 4.0
-    step: 0.5
+    step: 0.2
     label: Risk-reward ratio
+  - target: exit.max_holding_days
+    range:
+    - 5
+    - 30
+    step: 5
+    label: Max holding days

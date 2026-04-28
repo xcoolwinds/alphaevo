@@ -189,8 +189,9 @@ class ParamSearchEvolver:
         for param in strategy.params.tunable:
             # 在 param.range 内按 param.step 枚举
             # target 既可以是 ...value，也可以是
-            # entry.conditions[...].indicator / exit.take_profit.target
-            # 或 entry.conditions[...].indicator.fast/.slow
+            # entry.triggers[...].indicator / entry.guards[...].indicator
+            # entry.conditions[...].indicator / exit.take_profit.target / exit.max_holding_days
+            # 或 entry.triggers[...].indicator.fast/.slow
             # 用于指标窗口调参（如 ma60 -> ma55, rsi_14 -> rsi_10,
             # volume_ratio_1d_5d -> volume_ratio_1d_10d,
             # ma5_ge_ma10 -> ma6_ge_ma10）
@@ -419,11 +420,18 @@ class ConditionEvaluator:
     def evaluate_entry(self, entry: StrategyEntry,
                        df: pd.DataFrame, idx: int,
                        ctx: IndicatorContext = None) -> bool:
-        """评估完整入场条件: conditions 按 entry.logic, filters 始终 AND。"""
-        cond_ok = self.evaluate_group(entry.conditions, entry.logic, df, idx, ctx)
-        filter_ok = self.evaluate_group(entry.filters, "and", df, idx, ctx)
-        return cond_ok and filter_ok
+        """评估完整入场条件: triggers/conditions 触发买入, guards/filters 硬过滤。"""
+        triggers = entry.triggers or entry.conditions
+        guards = [*entry.guards, *entry.filters]
+        trigger_ok = self.evaluate_group(triggers, entry.logic, df, idx, ctx)
+        guard_ok = self.evaluate_group(guards, "and", df, idx, ctx)
+        return trigger_ok and guard_ok
 ```
+
+`StrategyEntry.triggers` 表示真正触发买入的信号，`StrategyEntry.guards`
+表示市场质量/风控过滤条件。旧版 `conditions` / `filters` 仍兼容：
+当 `triggers` 为空时回退到 `conditions`；`guards` 与 `filters` 始终按
+AND 过滤，避免“过滤条件本身变成买点”。
 
 ### A 股市场规则处理
 
@@ -503,10 +511,12 @@ class MarketRuleChecker:
 class BacktestEngine:
     def __init__(self, data_manager: DataManager,
                  condition_evaluator: ConditionEvaluator,
-                 market_rule_checker: MarketRuleChecker = None):
+                 market_rule_checker: MarketRuleChecker = None,
+                 fill_policy: str = "conservative"):
         self.data = data_manager
         self.evaluator = condition_evaluator
         self.rule_checker = market_rule_checker or MarketRuleChecker()
+        self.fill_policy = fill_policy
 
     async def run(self, strategy: Strategy,
                   batch: SampleBatch) -> BacktestResult:
@@ -569,7 +579,7 @@ class BacktestEngine:
         )
 
     def _check_exit(self, position, exit_config, df, idx, ctx=None) -> Optional[ExitSignal]:
-        """检查止损/止盈/最大持仓天数"""
+        """检查最大持仓、止损、止盈、显式卖出触发器"""
         current_price = df.iloc[idx]["close"]
         holding_days = (df.iloc[idx]["date"] - position.entry_date).days
 
@@ -580,26 +590,32 @@ class BacktestEngine:
         # 计算止损风险值 (统一用 risk_amount 表示每股风险)
         risk_amount = self._compute_risk(position, exit_config.stop_loss, df, idx, ctx)
 
-        # 止损
-        if exit_config.stop_loss.type == "pct":
-            if (current_price - position.entry_price) / position.entry_price <= -exit_config.stop_loss.value:
-                return ExitSignal(reason=ExitReason.STOP_LOSS, price=current_price)
-        elif exit_config.stop_loss.type == "atr":
-            atr_name = f"atr_{exit_config.stop_loss.atr_period}" if exit_config.stop_loss.atr_period else "atr"
-            atr = IndicatorRegistry.compute(atr_name, df, idx, ctx)
-            if current_price <= position.entry_price - atr * exit_config.stop_loss.multiplier:
-                return ExitSignal(reason=ExitReason.STOP_LOSS, price=current_price)
+        stop_signal = self._check_stop_loss(position, exit_config.stop_loss, df, idx, ctx)
+        take_profit_signal = self._check_take_profit(
+            position, exit_config.stop_loss, exit_config.take_profit, df, idx, ctx)
 
-        # 止盈 (基于统一的 risk_amount 计算目标价)
-        if exit_config.take_profit.type == "rr":
-            target = position.entry_price + risk_amount * exit_config.take_profit.value
-            if current_price >= target:
-                return ExitSignal(reason=ExitReason.TAKE_PROFIT, price=current_price)
-        elif exit_config.take_profit.type == "pct":
-            if (current_price - position.entry_price) / position.entry_price >= exit_config.take_profit.value:
-                return ExitSignal(reason=ExitReason.TAKE_PROFIT, price=current_price)
+        if stop_signal and take_profit_signal:
+            return self._resolve_intrabar_conflict(
+                stop_signal, take_profit_signal, position, df, idx)
+        if stop_signal:
+            return stop_signal
+        if take_profit_signal:
+            return take_profit_signal
+
+        # 显式卖出触发器：任一满足即按 signal 平仓
+        for trigger in exit_config.triggers:
+            if condition_evaluator.evaluate_condition(trigger, df, idx, ctx):
+                return ExitSignal(reason=ExitReason.SIGNAL, price=current_price)
 
         return None
+
+    def _resolve_intrabar_conflict(self, stop_signal, take_profit_signal, position, df, idx):
+        """同一根 K 线同时触发止损/止盈时，按 fill_policy 选择成交假设。"""
+        if self.fill_policy == "optimistic":
+            return take_profit_signal
+        if self.fill_policy == "close_first":
+            return take_profit_signal if df.iloc[idx]["close"] >= position.entry_price else stop_signal
+        return stop_signal
 
     def _compute_risk(self, position, stop_loss_config, df, idx, ctx=None) -> float:
         """统一计算每股风险金额, 供止盈 RR 计算使用。"""

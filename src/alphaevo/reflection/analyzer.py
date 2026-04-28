@@ -155,7 +155,7 @@ Design {num_candidates} candidate experiments. Respond in JSON:
       "proposed_changes": [
         {{
           "change_type": "tighten_filter|loosen_filter|add_condition|remove_condition|adjust_exit|change_logic|discover_factor",
-          "target": "entry.conditions[indicator=xxx].value",
+          "target": "entry.triggers[indicator=xxx].value",
           "from_value": "<current>",
           "to_value": "<proposed>",
           "reason": "why this specific change"
@@ -180,7 +180,7 @@ Rules:
 - Propose at most {max_changes} changes per round
 - Each change must be concrete (specific indicator, specific value)
 - Prefer small, targeted adjustments over radical rewrites
-- Consider: entry conditions too loose/tight, exit too early/late, missing filters
+- Consider: entry triggers too loose/tight, exit too early/late, missing hard filters
 - Always explain the reasoning behind each change
 - DO NOT repeat changes that have already been tried and failed (see prior rounds below)
 - Build on changes that worked in previous rounds
@@ -223,7 +223,7 @@ Analyze the failures and propose improvements. Respond in JSON:
   "proposed_changes": [
     {{
       "change_type": "tighten_filter|loosen_filter|add_condition|remove_condition|adjust_exit|change_logic|discover_factor",
-      "target": "entry.conditions[indicator=xxx].value",
+      "target": "entry.triggers[indicator=xxx].value",
       "from_value": <current>,
       "to_value": <proposed>,
       "reason": "why this change helps"
@@ -800,6 +800,10 @@ class ReflectionAnalyzer:
         reason = str(raw.get("reason", "")).strip()
 
         container = "entry.conditions"
+        if "triggers" in target:
+            container = "entry.triggers"
+        if "guards" in target:
+            container = "entry.guards"
         if "filters" in target:
             container = "entry.filters"
 
@@ -1265,10 +1269,11 @@ class ReflectionAnalyzer:
             patterns.append("Strategy performing well — no changes needed")
 
         # --- Structural: try AND→OR when conditions suppress signal generation ---
+        trigger_count = len(strategy.entry.triggers) + len(strategy.entry.conditions)
         if (
             m.signal_count < 30
             and strategy.entry.logic == "and"
-            and len(strategy.entry.conditions) >= 3
+            and trigger_count >= 3
             and len(changes) < self.max_changes
         ):
             changes.append(
@@ -1279,13 +1284,13 @@ class ReflectionAnalyzer:
                     to_value="or",
                     reason=(
                         "Too few signals with AND logic across "
-                        f"{len(strategy.entry.conditions)} conditions — try OR"
+                        f"{trigger_count} entry triggers/conditions — try OR"
                     ),
                 )
             )
             patterns.append(
-                f"Very few signals ({m.signal_count}) with {len(strategy.entry.conditions)} "
-                f"AND conditions — switching to OR for more coverage"
+                f"Very few signals ({m.signal_count}) with {trigger_count} "
+                f"AND entry triggers/conditions — switching to OR for more coverage"
             )
 
         # --- Consult experience store for additional guidance ---

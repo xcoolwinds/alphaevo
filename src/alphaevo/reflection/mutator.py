@@ -82,8 +82,8 @@ class StrategyMutator:
         if not applied:
             raise MutationError("No changes could be applied")
 
-        # Enforce complexity limit on total (conditions + filters)
-        n_conditions = len(new.entry.conditions) + len(new.entry.filters)
+        # Enforce complexity limit on total entry trigger/filter rules.
+        n_conditions = _entry_rule_count(new)
         if n_conditions > self.complexity_limit:
             if atomic:
                 raise MutationError(
@@ -95,14 +95,7 @@ class StrategyMutator:
                 n_conditions,
                 self.complexity_limit,
             )
-            # Trim conditions first (entry signals are easier to regenerate),
-            # then filters only if conditions alone can't bring us under limit.
-            if len(new.entry.conditions) > self.complexity_limit:
-                new.entry.conditions = new.entry.conditions[: self.complexity_limit]
-                new.entry.filters = []
-            else:
-                max_filters = self.complexity_limit - len(new.entry.conditions)
-                new.entry.filters = new.entry.filters[:max_filters]
+            _trim_entry_rules(new, self.complexity_limit)
 
         # Bump version
         old_id = new.meta.id
@@ -154,10 +147,7 @@ def _add_condition(strategy: Strategy, change: StrategyChange) -> None:
             f"Available: {IndicatorRegistry.available()}"
         )
 
-    if change.target.startswith("entry.filters"):
-        strategy.entry.filters.append(new_cond)
-    else:
-        strategy.entry.conditions.append(new_cond)
+    _entry_bucket(strategy, change.target).append(new_cond)
 
 
 def _remove_condition(strategy: Strategy, change: StrategyChange) -> None:
@@ -166,17 +156,16 @@ def _remove_condition(strategy: Strategy, change: StrategyChange) -> None:
     if not indicator:
         raise MutationError(f"Invalid target format (empty indicator name): {change.target}")
 
-    # Try conditions first
-    for i, cond in enumerate(strategy.entry.conditions):
-        if cond.indicator == indicator:
-            strategy.entry.conditions.pop(i)
-            return
-
-    # Try filters
-    for i, filt in enumerate(strategy.entry.filters):
-        if filt.indicator == indicator:
-            strategy.entry.filters.pop(i)
-            return
+    for bucket in (
+        strategy.entry.triggers,
+        strategy.entry.conditions,
+        strategy.entry.guards,
+        strategy.entry.filters,
+    ):
+        for i, condition in enumerate(bucket):
+            if condition.indicator == indicator:
+                bucket.pop(i)
+                return
 
     logger.warning("Condition with indicator=%s not found, skipping", indicator)
 
@@ -282,10 +271,7 @@ def _discover_factor(strategy: Strategy, change: StrategyChange) -> None:
             f"Ensure AlphaFactory.discover() ran successfully first."
         )
 
-    if change.target.startswith("entry.filters"):
-        strategy.entry.filters.append(new_cond)
-    else:
-        strategy.entry.conditions.append(new_cond)
+    _entry_bucket(strategy, change.target).append(new_cond)
 
 
 def _sanitize_condition_value(raw: Any) -> Any:
@@ -319,13 +305,54 @@ def _update_condition_value(strategy: Strategy, change: StrategyChange) -> None:
 
     indicator = change.target.split("indicator=")[-1].split("]")[0]
 
-    for cond in strategy.entry.conditions + strategy.entry.filters:
+    for cond in (
+        strategy.entry.triggers
+        + strategy.entry.conditions
+        + strategy.entry.guards
+        + strategy.entry.filters
+    ):
         if cond.indicator == indicator:
             if sanitized_value is not None:
                 cond.value = sanitized_value
             return
 
     raise MutationError(f"Condition with indicator={indicator} not found")
+
+
+def _entry_bucket(strategy: Strategy, target: str) -> list[StrategyCondition]:
+    """Return the entry condition bucket implied by a mutation target."""
+    if target.startswith("entry.guards"):
+        return strategy.entry.guards
+    if target.startswith("entry.filters"):
+        return strategy.entry.filters
+    if target.startswith("entry.triggers"):
+        return strategy.entry.triggers
+    return strategy.entry.conditions
+
+
+def _entry_rule_count(strategy: Strategy) -> int:
+    return (
+        len(strategy.entry.triggers)
+        + len(strategy.entry.conditions)
+        + len(strategy.entry.guards)
+        + len(strategy.entry.filters)
+    )
+
+
+def _trim_entry_rules(strategy: Strategy, limit: int) -> None:
+    """Trim entry buckets in priority order until the total fits the limit."""
+    remaining = limit
+    for bucket in (
+        strategy.entry.triggers,
+        strategy.entry.conditions,
+        strategy.entry.guards,
+        strategy.entry.filters,
+    ):
+        if remaining <= 0:
+            bucket.clear()
+            continue
+        del bucket[remaining:]
+        remaining -= len(bucket)
 
 
 _CHANGE_HANDLERS = {

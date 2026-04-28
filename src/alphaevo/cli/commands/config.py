@@ -28,6 +28,7 @@ def config_show() -> None:
     table.add_row("Cache Dir", str(config.data.cache_dir))
     table.add_row("Slippage", str(config.backtest.slippage))
     table.add_row("Commission", str(config.backtest.commission))
+    table.add_row("Fill Policy", str(config.backtest.fill_policy))
     table.add_row("Max Evolution Rounds", str(config.evolution.max_rounds))
     table.add_row("Strategies Dir", str(config.strategies_dir))
     console.print(table)

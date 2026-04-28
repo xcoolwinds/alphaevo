@@ -11,7 +11,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 from itertools import combinations
 from statistics import mean, median, stdev
-from typing import Any
+from typing import Any, Literal
 
 from alphaevo.evaluator.benchmark import BenchmarkComparator
 from alphaevo.models.enums import MarketRegime
@@ -42,10 +42,54 @@ _EVENT_INDICATORS = {
     "price_above_pre_event",
     "already_overreacted",
 }
+EvaluationMode = Literal["fast", "full"]
 
 
 class Evaluator:
     """Compute evaluation metrics from backtest results."""
+
+    def evaluate_fast(
+        self,
+        result: BacktestResult,
+        strategy: Strategy,
+        *,
+        contexts: dict[str, Any] | None = None,
+    ) -> EvaluationReport:
+        """Fast candidate evaluation for optimizer search loops.
+
+        This keeps the trade-level metrics used by qualification gates but skips
+        benchmark, stress-window, walk-forward, CPCV, and other heavy diagnostics.
+        Full reports should still use :meth:`evaluate`.
+        """
+        executed = [s for s in result.signals if s.exit_price is not None]
+        overall = self.compute_metrics(executed)
+        by_regime = self.compute_metrics_by_regime(executed)
+        by_sector = self.compute_metrics_by_sector(executed)
+        anti_fit = self.compute_anti_overfit(executed)
+        sorted_by_return = sorted(executed, key=lambda s: s.return_pct)
+        event_context = self.compute_event_context_metrics(strategy, contexts or {})
+        confidence = self.compute_confidence_score(
+            overall,
+            strategy.complexity_score,
+            anti_fit=anti_fit,
+        )
+
+        return EvaluationReport(
+            strategy_id=result.strategy_id,
+            batch_id=result.batch_id,
+            overall=overall,
+            by_regime=by_regime,
+            by_sector=by_sector,
+            anti_overfit=anti_fit,
+            failure_cases=sorted_by_return[:10],
+            top_patterns=self.compute_top_patterns(
+                by_regime,
+                by_sector,
+                event_context=event_context,
+            ),
+            confidence_score=confidence,
+            event_context=event_context,
+        )
 
     def evaluate(
         self,
@@ -804,11 +848,17 @@ class Evaluator:
         parts: list[str] = []
         # Entry conditions (sorted for stability)
         parts.append(f"logic={strategy.entry.logic}")
+        for c in sorted(strategy.entry.triggers, key=lambda x: x.indicator):
+            parts.append(f"et:{c.indicator}{c.op}{c.value}")
         for c in sorted(strategy.entry.conditions, key=lambda x: x.indicator):
             parts.append(f"ec:{c.indicator}{c.op}{c.value}")
+        for g in sorted(strategy.entry.guards, key=lambda x: x.indicator):
+            parts.append(f"eg:{g.indicator}{g.op}{g.value}")
         for f in sorted(strategy.entry.filters, key=lambda x: x.indicator):
             parts.append(f"ef:{f.indicator}{f.op}{f.value}")
         # Exit
+        for trigger in sorted(strategy.exit.triggers, key=lambda x: x.indicator):
+            parts.append(f"xt:{trigger.indicator}{trigger.op}{trigger.value}")
         sl = strategy.exit.stop_loss
         parts.append(f"sl:{sl.type}:{sl.value}:{sl.multiplier}")
         tp = strategy.exit.take_profit
@@ -833,7 +883,10 @@ class Evaluator:
     def _strategy_indicators(strategy: Strategy) -> set[str]:
         """Collect indicator names referenced by a strategy."""
         names = {cond.indicator for cond in strategy.entry.conditions}
+        names.update(cond.indicator for cond in strategy.entry.triggers)
         names.update(cond.indicator for cond in strategy.entry.filters)
+        names.update(cond.indicator for cond in strategy.entry.guards)
+        names.update(cond.indicator for cond in strategy.exit.triggers)
         if strategy.exit.stop_loss.conditions:
             names.update(cond.indicator for cond in strategy.exit.stop_loss.conditions)
         return names

@@ -131,7 +131,12 @@ class SelfCritic:
 
         # 2. Check complexity limit for ADD_CONDITION
         if change.change_type == ChangeType.ADD_CONDITION:
-            n_current = len(strategy.entry.conditions) + len(strategy.entry.filters)
+            n_current = (
+                len(strategy.entry.triggers)
+                + len(strategy.entry.conditions)
+                + len(strategy.entry.guards)
+                + len(strategy.entry.filters)
+            )
             n_adding = sum(1 for c in all_changes if c.change_type == ChangeType.ADD_CONDITION)
             n_removing = sum(1 for c in all_changes if c.change_type == ChangeType.REMOVE_CONDITION)
             projected = n_current + n_adding - n_removing
@@ -408,7 +413,10 @@ class SelfCritic:
             max_changes=max(len(exit_changes), 1),
             complexity_limit=max(
                 self._complexity_limit,
-                len(strategy.entry.conditions) + len(strategy.entry.filters),
+                len(strategy.entry.triggers)
+                + len(strategy.entry.conditions)
+                + len(strategy.entry.guards)
+                + len(strategy.entry.filters),
             ),
         )
         try:

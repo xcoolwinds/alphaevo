@@ -360,6 +360,7 @@ class RunPipeline:
             slippage=self.config.backtest.slippage,
             commission=self.config.backtest.commission,
             min_data_days=self.config.backtest.min_data_days,
+            fill_policy=self.config.backtest.fill_policy,
         )
         result = engine.run(strategy, data, batch, contexts=contexts or None)
         on_progress(f"Backtest complete: {result.total_signals} signals")
@@ -522,7 +523,13 @@ class RunPipeline:
     def _estimate_indicator_warmup_days(self, strategy: Strategy) -> int:
         """Estimate the longest lookback needed by the strategy's indicators."""
         lookbacks = [self.config.backtest.min_data_days]
-        conditions = list(strategy.entry.conditions) + list(strategy.entry.filters)
+        conditions = (
+            list(strategy.entry.conditions)
+            + list(strategy.entry.triggers)
+            + list(strategy.entry.filters)
+            + list(strategy.entry.guards)
+        )
+        conditions.extend(strategy.exit.triggers)
         if strategy.exit.stop_loss.conditions:
             conditions.extend(strategy.exit.stop_loss.conditions)
 
@@ -617,7 +624,15 @@ class RunPipeline:
         """Build per-symbol indicator context for L2/L3 indicators."""
         stock_lookup = {stock.symbol: stock for stock in stock_list}
         benchmark_df = await self._fetch_benchmark_data(strategy.meta.market, date_range)
-        market_context = self._build_market_context(benchmark_df)
+        benchmark_context = self._build_market_context(benchmark_df)
+        provider_context = await self._call_optional_data_manager_method(
+            "get_market_context",
+            strategy.meta.market,
+        )
+        market_context = self._merge_market_context(
+            benchmark_context,
+            provider_context if isinstance(provider_context, MarketContext) else None,
+        )
         if (
             market_context is not None
             and market_context.regime is not None
@@ -740,6 +755,30 @@ class RunPipeline:
         return MarketContext(
             index_change_pct=index_change_pct,
             regime=regime,
+        )
+
+    @staticmethod
+    def _merge_market_context(
+        benchmark_context: MarketContext | None,
+        provider_context: MarketContext | None,
+    ) -> MarketContext | None:
+        """Merge benchmark-derived regime with provider market breadth/sentiment."""
+        if benchmark_context is None:
+            return provider_context
+        if provider_context is None:
+            return benchmark_context
+
+        return MarketContext(
+            index_change_pct=(
+                provider_context.index_change_pct
+                if provider_context.index_change_pct is not None
+                else benchmark_context.index_change_pct
+            ),
+            breadth=provider_context.breadth,
+            regime=benchmark_context.regime or provider_context.regime,
+            sentiment_index=provider_context.sentiment_index,
+            sector_leaders=provider_context.sector_leaders,
+            sector_laggards=provider_context.sector_laggards,
         )
 
     @staticmethod

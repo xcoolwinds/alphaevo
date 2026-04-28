@@ -10,6 +10,7 @@ import pytest
 from alphaevo.data.adapter import DataAdapter, DataManager
 from alphaevo.data.cache import DataCache
 from alphaevo.models.enums import MarketType
+from alphaevo.models.market import MarketContext
 
 
 def _make_history(
@@ -39,6 +40,7 @@ class _StubAdapter(DataAdapter):
     def __init__(self) -> None:
         self.daily_calls = 0
         self.index_calls = 0
+        self.market_context_calls = 0
         self._stock_df = _make_history(date(2024, 1, 1), 120, base_price=100.0)
         self._index_df = _make_history(date(2024, 1, 1), 120, base_price=3000.0)
 
@@ -56,6 +58,12 @@ class _StubAdapter(DataAdapter):
     async def get_index_data(self, index_symbol: str, start: date, end: date) -> pd.DataFrame:
         self.index_calls += 1
         return self._index_df.copy()
+
+    async def get_market_context(self, market: MarketType) -> MarketContext | None:
+        self.market_context_calls += 1
+        if market != MarketType.A_SHARE:
+            return None
+        return MarketContext(breadth=0.62, sentiment_index=0.58)
 
 
 @pytest.mark.asyncio
@@ -119,3 +127,15 @@ async def test_prev_close_preserved_after_clipping(tmp_path):
     # First row may still be NaN (no prior row exists at all), but rows 1+ must be valid
     if len(df) > 1:
         assert df["prev_close"].iloc[1:].notna().all()
+
+
+@pytest.mark.asyncio
+async def test_get_market_context_uses_adapter_fallback():
+    adapter = _StubAdapter()
+    manager = DataManager([adapter])
+
+    context = await manager.get_market_context(MarketType.A_SHARE)
+
+    assert context is not None
+    assert context.breadth == 0.62
+    assert adapter.market_context_calls == 1

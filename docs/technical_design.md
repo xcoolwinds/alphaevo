@@ -129,8 +129,10 @@ class EntryExecution(BaseModel):   # v0.3 新增
 
 class StrategyEntry(BaseModel):
     logic: Literal["and", "or"] = "and"  # 条件组合逻辑
-    conditions: list[StrategyCondition]
-    filters: list[StrategyCondition] = []  # 始终 AND
+    triggers: list[StrategyCondition] = []  # v0.5: 真正触发买入的信号
+    guards: list[StrategyCondition] = []    # v0.5: 硬过滤条件，始终 AND
+    conditions: list[StrategyCondition] = []  # 兼容旧版触发条件
+    filters: list[StrategyCondition] = []     # 兼容旧版过滤条件，始终 AND
     execution: EntryExecution = EntryExecution()  # v0.3 新增
 
 class StopLossConfig(BaseModel):
@@ -142,12 +144,15 @@ class StopLossConfig(BaseModel):
     conditions: Optional[list[StrategyCondition]] = None  # v0.3: composite 标准化
 
 class StrategyExit(BaseModel):
+    triggers: list[StrategyCondition] = []  # v0.4: 显式卖出触发器，任一满足即 signal 退出
     stop_loss: StopLossConfig
     take_profit: TakeProfitConfig
     max_holding_days: int = 10
 
 class TunableParam(BaseModel):
-    target: str                    # "entry.conditions[indicator=rsi_14].value"
+    target: str                    # "entry.triggers[indicator=rsi_14].value"
+                                 # or "entry.guards[indicator=relative_strength_20d].value"
+                                 # or "entry.conditions[indicator=rsi_14].value" (legacy)
                                  # or "entry.conditions[indicator=close_above_ma60].indicator"
                                  # or "entry.conditions[indicator=rsi_14].indicator"
                                  # or "entry.conditions[indicator=volume_ratio_1d_5d].indicator"
@@ -160,7 +165,8 @@ class TunableParam(BaseModel):
                                  # or "entry.conditions[indicator=bollinger_band_width].indicator"
                                  # or "entry.conditions[indicator=bollinger_band_width].indicator.std"
                                  # or "exit.take_profit.target" / "exit.stop_loss.atr_period"
-                                 #    (indicator / MA / MACD / Bollinger / ATR tuning)
+                                 # or "exit.max_holding_days"
+                                 #    (indicator / MA / MACD / Bollinger / ATR / holding tuning)
     range: tuple[float, float]
     step: float
     label: Optional[str] = None
@@ -179,6 +185,15 @@ class Strategy(BaseModel):
 
 > **v0.3 变更**: composite 退出的 `conditions` 从 `list[dict]` 改为 `list[StrategyCondition]`；
 > 新增 `EntryExecution`（入场时机+滑点）；新增 `StrategyMeta.preferred_regime`。
+
+> **v0.4 变更**: 新增 `StrategyExit.triggers`。它与 `entry.conditions` 共用
+> `StrategyCondition` 结构，但在持仓期间按 OR 语义执行；命中后以当前 close
+> 生成 `ExitReason.SIGNAL`。止损/止盈仍优先于显式卖出触发器。
+
+> **v0.5 变更**: 新增 `StrategyEntry.triggers` / `StrategyEntry.guards`。
+> `triggers` 表示真正买点；`guards` 表示硬过滤。旧版
+> `conditions` / `filters` 仍兼容。新增 `BacktestConfig.fill_policy`，
+> 用于处理同一根 K 线同时触发止损和止盈的成交歧义。
 
 ### 2.3 SampleBatch — 采样批次
 

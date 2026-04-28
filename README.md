@@ -68,8 +68,13 @@ Round 4 │ v4 │ Win: 85%   Signals: 27  │ Score: 55.2%  ↓ -1.0%
 | Goal | Command | Data | LLM |
 |------|---------|------|-----|
 | Fast first-run demo | `alphaevo demo` | Synthetic | No |
+| Turn a plain-language idea into executable YAML | `alphaevo strategy draft "<idea>" --save` | None | No |
+| Draft, backtest, and optimize a plain-language idea | `alphaevo strategy research "<idea>"` | Real data | No |
+| Revise an existing strategy and validate it | `alphaevo strategy improve <id> "<change request>"` | Real data | No |
 | Real market data smoke test | `alphaevo demo --real` | Live yfinance / akshare | No |
 | Fuller real-data backtest | `alphaevo run ma_crossover_v1` | Live yfinance | No |
+| Optimize entry thresholds and exit/risk rules | `alphaevo optimize <id> --spaces entry,params,indicator,exit,stoploss,takeprofit,holding` | Real data | No |
+| Require a quality-gated 50%+ win rate | `alphaevo optimize <id> --objective win_rate --min-win-rate 0.5 --min-avg-return 0 --min-profit-loss-ratio 1.0 --max-drawdown 0.35 --min-signals 30 --param-max-changes 2 --max-values-per-param 8 --evaluation-mode fast --full-eval-top 5` | Real data | No |
 | Flagship research-agent path | `alphaevo evolve <id> --method llm --output reports/` | Real data | Yes |
 
 Real-data commands need a data adapter extra: install `pip install -e ".[data-yfinance]"` for the default US workflow, `pip install -e ".[data-akshare]"` for A-share, or `pip install -e ".[data-full]"` for both.
@@ -170,12 +175,20 @@ meta:
 
 entry:
   logic: and
-  conditions:
+  triggers:
     - indicator: relative_strength_20d
       op: ">"
       value: 0.12
+  guards:
+    - indicator: ma5_above_ma10
+      op: "=="
+      value: true
 
 exit:
+  triggers:
+    - indicator: close_below_ma10
+      op: "=="
+      value: true
   stop_loss:
     type: atr
     atr_period: 21
@@ -186,7 +199,7 @@ exit:
 
 params:
   tunable:
-    - target: entry.conditions[indicator=relative_strength_20d].value
+    - target: entry.triggers[indicator=relative_strength_20d].value
       range: [0.05, 0.20]
       step: 0.01
 ```

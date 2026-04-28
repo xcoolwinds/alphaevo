@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
 
@@ -22,6 +22,13 @@ from alphaevo.sampler.regime import RegimeDetector
 if TYPE_CHECKING:
     from alphaevo.models.market import IndicatorContext
     from alphaevo.models.strategy import MarketRuleConfig, StopLossConfig, Strategy
+
+FillPolicy = Literal["conservative", "optimistic", "close_first"]
+_FILL_POLICY_ALIASES = {
+    "stop_first": "conservative",
+    "take_profit_first": "optimistic",
+    "tp_first": "optimistic",
+}
 
 
 @dataclass
@@ -51,16 +58,19 @@ class BacktestEngine:
         slippage: float = 0.001,
         commission: float = 0.0003,
         min_data_days: int = 30,
+        fill_policy: str = "conservative",
     ) -> None:
         if not 0 <= slippage <= 0.1:
             raise ValueError(f"slippage must be in [0, 0.1], got {slippage}")
         if not 0 <= commission <= 0.1:
             raise ValueError(f"commission must be in [0, 0.1], got {commission}")
+        normalized_fill_policy = _normalize_fill_policy(fill_policy)
         self.evaluator = condition_evaluator or ConditionEvaluator()
         self.rule_checker = rule_checker or MarketRuleChecker()
         self.slippage = slippage
         self.commission = commission
         self.min_data_days = min_data_days
+        self.fill_policy = normalized_fill_policy
 
     def run(
         self,
@@ -254,6 +264,42 @@ class BacktestEngine:
             return (ExitReason.MAX_HOLD, current_price)
 
         # 2. Stop loss
+        stop_result = self._check_stop_loss(position, strategy, df, idx, ctx)
+
+        # 3. Take profit
+        take_profit_result = self._check_take_profit(position, strategy, df, idx, ctx)
+
+        if stop_result is not None and take_profit_result is not None:
+            return self._resolve_intrabar_conflict(
+                stop_result,
+                take_profit_result,
+                position,
+                current_price,
+            )
+        if stop_result is not None:
+            return stop_result
+        if take_profit_result is not None:
+            return take_profit_result
+
+        # 4. Explicit exit triggers. These are end-of-bar sell signals,
+        # so they execute at the current close after intraday risk checks.
+        for trigger in exit_cfg.triggers:
+            if self.evaluator.evaluate_condition(trigger, df, idx, ctx):
+                return (ExitReason.SIGNAL, current_price)
+
+        return None
+
+    def _check_stop_loss(
+        self,
+        position: _Position,
+        strategy: Strategy,
+        df: pd.DataFrame,
+        idx: int,
+        ctx: IndicatorContext | None,
+    ) -> tuple[ExitReason, float] | None:
+        """Check stop-loss exits for one bar."""
+        exit_cfg = strategy.exit
+        current_price = df["close"].iloc[idx]
         sl = exit_cfg.stop_loss
         if sl.type == "pct" and sl.value is not None:
             stop_price = position.entry_price * (1 - sl.value)
@@ -295,9 +341,20 @@ class BacktestEngine:
                 if self.evaluator.evaluate_condition(cond, df, idx, ctx):
                     return (ExitReason.STOP_LOSS, current_price)
 
-        # 3. Take profit
+        return None
+
+    def _check_take_profit(
+        self,
+        position: _Position,
+        strategy: Strategy,
+        df: pd.DataFrame,
+        idx: int,
+        ctx: IndicatorContext | None,
+    ) -> tuple[ExitReason, float] | None:
+        """Check take-profit exits for one bar."""
+        exit_cfg = strategy.exit
         tp = exit_cfg.take_profit
-        risk_amount = self._compute_risk(position, sl, df, idx, ctx)
+        risk_amount = self._compute_risk(position, exit_cfg.stop_loss, df, idx, ctx)
 
         if tp.type == "rr" and tp.value is not None:
             target = position.entry_price + risk_amount * tp.value
@@ -329,6 +386,21 @@ class BacktestEngine:
                     return (ExitReason.TAKE_PROFIT, trail_price)
 
         return None
+
+    def _resolve_intrabar_conflict(
+        self,
+        stop_result: tuple[ExitReason, float],
+        take_profit_result: tuple[ExitReason, float],
+        position: _Position,
+        close_price: float,
+    ) -> tuple[ExitReason, float]:
+        """Resolve a bar where stop-loss and take-profit both appear reachable."""
+        if self.fill_policy == "optimistic":
+            return take_profit_result
+        if self.fill_policy == "close_first":
+            close_return = (close_price - position.entry_price) / position.entry_price
+            return take_profit_result if close_return >= 0 else stop_result
+        return stop_result
 
     def _compute_risk(
         self,
@@ -499,7 +571,10 @@ class BacktestEngine:
     def _collect_unknown_indicators(strategy: Strategy) -> list[str]:
         """Collect indicator names not registered in IndicatorRegistry."""
         names = [c.indicator for c in strategy.entry.conditions]
+        names.extend(c.indicator for c in strategy.entry.triggers)
         names.extend(c.indicator for c in strategy.entry.filters)
+        names.extend(c.indicator for c in strategy.entry.guards)
+        names.extend(c.indicator for c in strategy.exit.triggers)
         if strategy.exit.stop_loss.conditions:
             names.extend(c.indicator for c in strategy.exit.stop_loss.conditions)
 
@@ -510,7 +585,10 @@ class BacktestEngine:
     def _collect_all_indicators(strategy: Strategy) -> list[str]:
         """Collect all indicator names used by the strategy."""
         names = [c.indicator for c in strategy.entry.conditions]
+        names.extend(c.indicator for c in strategy.entry.triggers)
         names.extend(c.indicator for c in strategy.entry.filters)
+        names.extend(c.indicator for c in strategy.entry.guards)
+        names.extend(c.indicator for c in strategy.exit.triggers)
         if strategy.exit.stop_loss.conditions:
             names.extend(c.indicator for c in strategy.exit.stop_loss.conditions)
         return sorted(set(names))
@@ -529,7 +607,9 @@ class BacktestEngine:
         """
         snapshot: dict[str, float | bool] = {}
         indicators_to_capture = {c.indicator for c in strategy.entry.conditions}
+        indicators_to_capture.update(c.indicator for c in strategy.entry.triggers)
         indicators_to_capture.update(c.indicator for c in strategy.entry.filters)
+        indicators_to_capture.update(c.indicator for c in strategy.entry.guards)
         # Also capture core context indicators the LLM often references
         for extra in ("rsi_14", "volume_ratio_1d_5d", "atr", "momentum_10d", "ma20_slope"):
             indicators_to_capture.add(extra)
@@ -598,3 +678,13 @@ def _indicator_warmup(indicator_names: list[str]) -> int:
     # EMA convergence needs ~2x period; SMA needs exactly period
     buffer = max_period if has_ema_indicator else max(5, max_period // 4)
     return max(30, max_period + buffer)
+
+
+def _normalize_fill_policy(fill_policy: str) -> FillPolicy:
+    normalized = _FILL_POLICY_ALIASES.get(fill_policy.strip().lower(), fill_policy.strip().lower())
+    if normalized not in {"conservative", "optimistic", "close_first"}:
+        raise ValueError(
+            "fill_policy must be one of: conservative, optimistic, close_first, "
+            "stop_first, take_profit_first"
+        )
+    return normalized  # type: ignore[return-value]

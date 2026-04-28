@@ -406,9 +406,9 @@ class MetaLearner:
 
 def _categorize_target(target: str) -> str:
     """Categorize a change target into a high-level category."""
-    if "entry.conditions" in target:
+    if "entry.triggers" in target or "entry.conditions" in target:
         return "entry_condition"
-    elif "entry.filters" in target:
+    elif "entry.guards" in target or "entry.filters" in target:
         return "entry_filter"
     elif "stop_loss" in target:
         return "stop_loss"

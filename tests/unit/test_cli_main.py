@@ -15,6 +15,7 @@ from alphaevo.cli.main import app
 from alphaevo.core.config import AppConfig, DataConfig
 from alphaevo.models.enums import SamplingMethod
 from alphaevo.models.execution import EvaluationReport, OverallMetrics
+from alphaevo.strategy.draft import StrategyDraftBuilder
 from alphaevo.strategy.dsl.parser import StrategyParser
 from alphaevo.strategy.store import StrategyStore
 
@@ -505,6 +506,141 @@ class TestStrategyShowCommand:
 
         assert result.exit_code == 1
         assert "Generation failed: Temporary failure in name resolution" in result.stdout
+
+
+class TestStrategyResearchCommand:
+    def test_strategy_research_drafts_saves_and_runs(self, tmp_path: Path) -> None:
+        config = _make_config(tmp_path)
+        fake_result = SimpleNamespace(
+            evaluation=_make_evaluation("rsi_10_3_5_v1"),
+            report_path=tmp_path / "reports" / "rsi_10_3_5_v1_report.md",
+            batch=SimpleNamespace(),
+            backtest_result=SimpleNamespace(signals=[]),
+            strategy=SimpleNamespace(),
+            _data={},
+            _contexts={},
+        )
+
+        with (
+            patch("alphaevo.cli.commands.strategy._get_config", return_value=config),
+            patch("alphaevo.orchestrator.pipeline.RunPipeline") as MockPipeline,
+        ):
+            pipeline = MockPipeline.return_value
+            pipeline.ensure_builtin_strategies.return_value = 0
+            pipeline.run = AsyncMock(return_value=fake_result)
+
+            result = runner.invoke(
+                app,
+                [
+                    "strategy",
+                    "research",
+                    "RSI超跌反转，跌破10日线卖出，止损3%，持有5天",
+                    "--market",
+                    "us",
+                    "--samples",
+                    "7",
+                    "--no-optimize-exits",
+                    "--no-optimize-params",
+                    "--output",
+                    str(tmp_path / "research"),
+                ],
+            )
+
+        assert result.exit_code == 0
+        assert "Drafted and saved strategy" in result.stdout
+        assert "Research Summary" in result.stdout
+        assert pipeline.run.await_args.args[0] == "rsi_10_3_5_v1"
+        assert pipeline.run.await_args.kwargs["max_symbols"] == 7
+
+        saved = StrategyStore(config.db_path).get("rsi_10_3_5_v1")
+        assert saved is not None
+        assert saved.entry.triggers
+        assert [condition.indicator for condition in saved.exit.triggers] == ["close_below_ma10"]
+        research_dir = tmp_path / "research" / "rsi_10_3_5_v1_research"
+        assert (research_dir / "rsi_10_3_5_v1.yaml").exists()
+        assert (research_dir / "rsi_10_3_5_v1_research_advice.md").exists()
+
+    def test_strategy_research_help(self) -> None:
+        result = runner.invoke(app, ["strategy", "research", "--help"])
+
+        assert result.exit_code == 0
+        assert "Draft, save, backtest" in result.stdout
+        assert "--optimize-exits" in result.stdout
+        assert "--optimize-params" in result.stdout
+
+
+class TestStrategyImproveCommand:
+    def test_strategy_improve_revises_saves_and_runs(self, tmp_path: Path) -> None:
+        config = _make_config(tmp_path)
+        store = StrategyStore(config.db_path)
+        base = StrategyDraftBuilder().from_text(
+            "RSI超跌反转，跌破10日线卖出，止损3%，持有5天",
+            market="us",
+            strategy_id="rsi_custom_v1",
+        )
+        store.save(base)
+        store.save_evaluation(_make_evaluation(base.meta.id))
+
+        fake_result = SimpleNamespace(
+            evaluation=_make_evaluation("rsi_custom_v2").model_copy(
+                update={"confidence_score": 0.62}
+            ),
+            report_path=tmp_path / "reports" / "rsi_custom_v2_report.md",
+            batch=SimpleNamespace(),
+            backtest_result=SimpleNamespace(signals=[]),
+            strategy=SimpleNamespace(),
+            _data={},
+            _contexts={},
+        )
+
+        with (
+            patch("alphaevo.cli.commands.strategy._get_config", return_value=config),
+            patch("alphaevo.orchestrator.pipeline.RunPipeline") as MockPipeline,
+        ):
+            pipeline = MockPipeline.return_value
+            pipeline.ensure_builtin_strategies.return_value = 0
+            pipeline.run = AsyncMock(return_value=fake_result)
+
+            result = runner.invoke(
+                app,
+                [
+                    "strategy",
+                    "improve",
+                    "rsi_custom_v1",
+                    "减少交易次数，降低回撤，右侧确认",
+                    "--samples",
+                    "9",
+                    "--output",
+                    str(tmp_path / "improve"),
+                ],
+            )
+
+        assert result.exit_code == 0
+        assert "Saved revised strategy: rsi_custom_v2" in result.stdout
+        assert "Score delta vs stored parent best" in result.stdout
+        assert pipeline.run.await_args.args[0] == "rsi_custom_v2"
+        assert pipeline.run.await_args.kwargs["max_symbols"] == 9
+
+        saved = StrategyStore(config.db_path).get("rsi_custom_v2")
+        assert saved is not None
+        assert saved.meta.parent_id == "rsi_custom_v1"
+        assert saved.entry.execution is not None
+        assert saved.entry.execution.timing == "breakout_high"
+        improve_dir = tmp_path / "improve" / "rsi_custom_v2_improve"
+        assert (improve_dir / "rsi_custom_v2.yaml").exists()
+        assert (improve_dir / "rsi_custom_v2_research_advice.md").exists()
+
+    def test_strategy_improve_missing_strategy(self, tmp_path: Path) -> None:
+        config = _make_config(tmp_path)
+
+        with patch("alphaevo.cli.commands.strategy._get_config", return_value=config):
+            result = runner.invoke(
+                app,
+                ["strategy", "improve", "missing_v1", "降低回撤"],
+            )
+
+        assert result.exit_code == 1
+        assert "Strategy not found" in result.stdout
 
 
 class TestInitCommand:

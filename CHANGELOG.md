@@ -28,6 +28,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in their YAML meta. CLI displays ⚠️ warning in `strategy list` and `strategy show`.
 - **Demo Synthetic Data Disclaimer**: Demo now clearly states results use synthetic
   data and suggests `alphaevo demo --real` for real market data.
+- **Strategy Drafting CLI**: `alphaevo strategy draft` and `alphaevo strategy revise`
+  convert plain-language ideas into executable strategy YAML and support iterative edits.
+- **One-Shot Research CLI**: `alphaevo strategy research` drafts a plain-language
+  strategy, saves it, backtests it, and can run entry-parameter plus exit/risk
+  optimization in one command.
+- **Research Advice Reports**: one-shot research now writes deterministic next-step
+  guidance based on sample size, payoff profile, overfit diagnostics, and exit diagnostics.
+- **Strategy Improve CLI**: `alphaevo strategy improve` applies a bounded
+  natural-language revision to an existing strategy, backtests it, can run
+  parameter/exit optimization, and writes advice.
+- **Explicit Entry/Exit Semantics**: DSL adds `entry.triggers`, `entry.guards`, and
+  `exit.triggers` so buy signals, hard filters, and sell signals are independently backtestable.
+- **Exit/Risk Optimizer**: `alphaevo optimize` searches sell triggers, stop loss,
+  take profit, and max holding rules, with optional best-candidate YAML export.
+- **Parameter Optimizer**: `alphaevo optimize --spaces entry,params,indicator`
+  now searches executable `params.tunable` entry thresholds and indicator windows
+  on the same sampled market data.
+- **Optimization Gates**: `alphaevo optimize` supports `--objective win_rate`,
+  `--min-win-rate`, `--min-avg-return`, `--min-profit-loss-ratio`,
+  `--max-drawdown`, `--min-signals`, and `--param-max-changes` so candidates
+  can be judged against explicit qualification thresholds such as 50%+ win rate
+  without negative expectancy or weak payoff quality.
+- **Fast Optimization Evaluation**: candidate search now supports
+  `--evaluation-mode fast` plus `--full-eval-top` so large grids can screen on
+  trade metrics first and fully re-evaluate only the leading candidates.
+- **Exit Diagnostics**: Optimization reports now summarize MFE/MAE, giveback,
+  potentially early exits, late exits, effective stops, and truncated take profits.
+- **Backtest Fill Policy**: Added configurable same-candle stop-loss/take-profit
+  conflict handling via `backtest.fill_policy` / `--fill-policy`.
+- **Daily Stock Analysis Adapter**: Added the `dsa` data adapter path for reusing
+  daily_stock_analysis market data through AlphaEvo's adapter boundary.
 
 ### Changed
 - `ChangeType` enum extended with `CHANGE_LOGIC` and `DISCOVER_FACTOR`
@@ -36,6 +67,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Serializer omits `experimental: false` from YAML output to avoid clutter
 - LLM reflection prompts now include `change_logic` and `discover_factor` as
   valid change types
+- Backtesting now treats `entry.triggers` as the preferred buy signal group and
+  falls back to legacy `entry.conditions` for existing strategy YAML.
 
 ## [0.1.0] — 2026-03-31
 

@@ -48,6 +48,9 @@ class TestStrategySerializer:
                 ],
             ),
             exit=StrategyExit(
+                triggers=[
+                    StrategyCondition(indicator="close_below_ma10", op="==", value=True),
+                ],
                 stop_loss=StopLossConfig(type="pct", value=0.04),
                 take_profit=TakeProfitConfig(type="rr", value=2.0),
                 max_holding_days=10,
@@ -88,6 +91,12 @@ class TestStrategySerializer:
     def test_roundtrip_simple(self) -> None:
         """Strategy → YAML → Strategy should preserve key fields."""
         original = self._make_simple_strategy()
+        original.entry.triggers = [
+            StrategyCondition(indicator="momentum_10d", op=">", value=0.02),
+        ]
+        original.entry.guards = [
+            StrategyCondition(indicator="volatility_20d", op="<", value=0.08),
+        ]
         yaml_str = self.serializer.to_yaml(original)
         restored = self.parser.parse_yaml(yaml_str)
 
@@ -95,11 +104,14 @@ class TestStrategySerializer:
         assert restored.meta.name == original.meta.name
         assert restored.meta.version == original.meta.version
         assert restored.meta.category == original.meta.category
+        assert restored.entry.triggers == original.entry.triggers
+        assert restored.entry.guards == original.entry.guards
         assert len(restored.entry.conditions) == len(original.entry.conditions)
         assert restored.exit.stop_loss.type == original.exit.stop_loss.type
         assert restored.exit.stop_loss.value == original.exit.stop_loss.value
         assert restored.exit.take_profit.type == original.exit.take_profit.type
         assert restored.exit.max_holding_days == original.exit.max_holding_days
+        assert restored.exit.triggers == original.exit.triggers
 
     def test_roundtrip_builtin_strategies(self) -> None:
         """All builtin strategies should survive parse → serialize → parse."""
