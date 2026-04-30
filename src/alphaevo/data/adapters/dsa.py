@@ -251,9 +251,7 @@ class DSAAdapter(DataAdapter):
                             market_cap=_to_float(
                                 _get_field(item, "market_cap", "总市值", "总市值-元")
                             ),
-                            pe_ttm=_to_float(
-                                _get_field(item, "pe_ttm", "市盈率", "市盈率-动态")
-                            ),
+                            pe_ttm=_to_float(_get_field(item, "pe_ttm", "市盈率", "市盈率-动态")),
                         )
                     )
             return stocks
@@ -457,9 +455,17 @@ class DSAAdapter(DataAdapter):
 
     def _fetch_market_payload(
         self,
-    ) -> tuple[dict[str, Any], list[dict[str, Any]], tuple[list[dict[str, Any]], list[dict[str, Any]]]]:
-        stats = self._manager.get_market_stats() if hasattr(self._manager, "get_market_stats") else {}
-        indices = self._manager.get_main_indices(region="cn") if hasattr(self._manager, "get_main_indices") else []
+    ) -> tuple[
+        dict[str, Any], list[dict[str, Any]], tuple[list[dict[str, Any]], list[dict[str, Any]]]
+    ]:
+        stats = (
+            self._manager.get_market_stats() if hasattr(self._manager, "get_market_stats") else {}
+        )
+        indices = (
+            self._manager.get_main_indices(region="cn")
+            if hasattr(self._manager, "get_main_indices")
+            else []
+        )
         rankings = self._fetch_sector_rankings()
         return (
             stats if isinstance(stats, dict) else {},

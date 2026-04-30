@@ -241,9 +241,7 @@ class ExitOptimizer:
             evaluated = [runner(item) for item in work_items]
 
         candidates = [candidate for candidate, _result in evaluated]
-        backtest_results = {
-            candidate.candidate_id: result for candidate, result in evaluated
-        }
+        backtest_results = {candidate.candidate_id: result for candidate, result in evaluated}
 
         ranked = sorted(
             candidates,
@@ -497,7 +495,9 @@ def analyze_exit_points(
         if post_window.empty or signal.exit_price is None or signal.exit_price <= 0:
             continue
         post_high_gain = (float(post_window["high"].max()) - signal.exit_price) / signal.exit_price
-        post_low_drawdown = (signal.exit_price - float(post_window["low"].min())) / signal.exit_price
+        post_low_drawdown = (
+            signal.exit_price - float(post_window["low"].min())
+        ) / signal.exit_price
 
         if (
             signal.exit_reason in {ExitReason.TAKE_PROFIT, ExitReason.SIGNAL, ExitReason.MAX_HOLD}
@@ -863,7 +863,9 @@ def _candidate_sort_key(
     )
 
 
-def _objective_value(candidate: ExitOptimizationCandidate, objective: OptimizationObjective) -> float:
+def _objective_value(
+    candidate: ExitOptimizationCandidate, objective: OptimizationObjective
+) -> float:
     return objective_value(candidate.evaluation, objective)
 
 

@@ -99,7 +99,9 @@ def select_high_win_return_candidate(candidates: Iterable[Any]) -> Any | None:
     return max(items, key=_high_win_return_sort_key)
 
 
-def _high_win_return_sort_key(candidate: Any) -> tuple[float, float, float, float, float, float, float]:
+def _high_win_return_sort_key(
+    candidate: Any,
+) -> tuple[float, float, float, float, float, float, float]:
     ev = candidate.evaluation.overall
     return (
         1.0 if candidate.passed_gate else 0.0,

@@ -701,6 +701,36 @@ def _showcase_change_plan(strategy: Strategy) -> list[StrategyChange]:
                 "window while watching drawdown."
             ),
         ),
+        StrategyChange(
+            change_type=ChangeType.ADJUST_EXIT,
+            target="exit.take_profit.value",
+            from_value=strategy.exit.take_profit.value,
+            to_value=6.0,
+            reason=(
+                "Validated high-volume reversals needed a larger payoff target; "
+                "test a wider reward multiple instead of taking profits too early."
+            ),
+        ),
+        StrategyChange(
+            change_type=ChangeType.LOOSEN_FILTER,
+            target="entry.conditions[indicator=close_to_ma20_pct].indicator",
+            from_value="close_to_ma20_pct",
+            to_value="close_to_ma60_pct",
+            reason=(
+                "A longer support anchor reduced whipsaw drawdown on the snapshot; "
+                "test MA60 proximity as the reversal support context."
+            ),
+        ),
+        StrategyChange(
+            change_type=ChangeType.TIGHTEN_FILTER,
+            target="entry.conditions[indicator=volume_ratio_1d_5d].value",
+            from_value=1.3,
+            to_value=2.0,
+            reason=(
+                "After OR logic unlocked signals, require stronger volume confirmation "
+                "to filter weaker rebounds."
+            ),
+        ),
     ]
 
 
@@ -785,7 +815,28 @@ def _render_showcase_report(
             f"| {metrics.max_drawdown:.1%} | {round_result.evaluation.confidence_score:.1%} |"
         )
 
+    champion_metrics = champion.evaluation.overall
+    champion_anti_fit = champion.evaluation.anti_overfit
     lines += [
+        "",
+        "## Champion Diagnostics",
+        "",
+        "| Metric | Value |",
+        "|--------|-------|",
+        f"| Signals | {champion.signals} |",
+        f"| Win Rate | {champion_metrics.win_rate:.1%} |",
+        f"| Average Return | {champion_metrics.avg_return:.2%} |",
+        f"| Sequential Total Return | {champion_metrics.total_return:.2%} |",
+        f"| Profit/Loss Ratio | {champion_metrics.profit_loss_ratio:.2f} |",
+        f"| Max Drawdown | {champion_metrics.max_drawdown:.1%} |",
+        f"| Train-Val Gap | {champion_anti_fit.train_val_gap:.1%} |",
+        f"| Val-Test Gap | {champion_anti_fit.val_test_gap:.1%} |",
+        f"| Yearly Consistency | {champion_anti_fit.yearly_consistency:.1%} |",
+        f"| Overfit Flag | {'yes' if champion_anti_fit.is_overfit else 'no'} |",
+        "",
+        "The champion remains a showcase result, not an official benchmark: it uses a "
+        "fixed five-symbol snapshot and should be revalidated on broader universes "
+        "before any serious research claim.",
         "",
         "## Research Committee",
         "",
@@ -1147,7 +1198,9 @@ def run_showcase(
             data, manifest = load_showcase_snapshot()
         else:
             if len(data) < 3:
-                console.print("  [yellow]Live data was incomplete; using bundled snapshot.[/yellow]")
+                console.print(
+                    "  [yellow]Live data was incomplete; using bundled snapshot.[/yellow]"
+                )
                 data, manifest = load_showcase_snapshot()
             else:
                 source_label = "live yfinance download"
@@ -1237,7 +1290,11 @@ def run_showcase(
     table.add_column("Score", justify="right")
     for item in rounds:
         metrics = item.evaluation.overall
-        label = f"[bold]{item.strategy.meta.id}[/bold] 🏆" if item is champion else item.strategy.meta.id
+        label = (
+            f"[bold]{item.strategy.meta.id}[/bold] 🏆"
+            if item is champion
+            else item.strategy.meta.id
+        )
         table.add_row(
             label,
             str(item.signals),

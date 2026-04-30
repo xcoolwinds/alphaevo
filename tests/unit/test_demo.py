@@ -18,6 +18,7 @@ from alphaevo.cli.demo import (
     _record_demo_experience,
     _run_backtest,
     _select_best_demo_mutation,
+    _showcase_change_plan,
     load_showcase_snapshot,
 )
 from alphaevo.models.enums import ChangeType
@@ -176,3 +177,31 @@ def test_load_showcase_snapshot_uses_bundled_real_data() -> None:
     assert manifest["source_adapter"] == "yfinance"
     assert _data_fingerprint(data)
     assert all(len(df) >= 250 for df in data.values())
+
+
+def test_showcase_plan_produces_stronger_snapshot_champion() -> None:
+    strategy = StrategyParser().parse_file(Path("strategies/builtin/rsi_reversion.yaml"))
+    data, _manifest = load_showcase_snapshot()
+    data = {symbol: data[symbol] for symbol in ["AAPL", "MSFT", "NVDA", "AMD", "TSLA"]}
+    plan = _showcase_change_plan(strategy)
+    mutator = StrategyMutator(max_changes=3, complexity_limit=8)
+
+    current = strategy
+    for change in plan:
+        current = mutator.mutate(current, [change], atomic=True)
+
+    evaluation, signals, _trades = _run_backtest(current, data)
+    metrics = evaluation.overall
+
+    assert [change.target for change in plan] == [
+        "entry.logic",
+        "exit.stop_loss.value",
+        "exit.max_holding_days",
+        "exit.take_profit.value",
+        "entry.conditions[indicator=close_to_ma20_pct].indicator",
+        "entry.conditions[indicator=volume_ratio_1d_5d].value",
+    ]
+    assert signals >= 30
+    assert metrics.avg_return >= 0.025
+    assert metrics.max_drawdown <= 0.25
+    assert evaluation.confidence_score >= 0.65

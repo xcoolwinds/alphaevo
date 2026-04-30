@@ -116,7 +116,9 @@ def build_research_advice(
                 command=f"alphaevo run {best.candidate_id} --sampling strategy_scoped",
             )
         )
-        advice.recommendations.extend(_exit_diagnostic_recommendations(getattr(best, "diagnostics", None)))
+        advice.recommendations.extend(
+            _exit_diagnostic_recommendations(getattr(best, "diagnostics", None))
+        )
         return advice
 
     if overall.win_rate >= 0.52 and (overall.avg_return <= 0 or overall.profit_loss_ratio < 1.2):
@@ -213,7 +215,9 @@ def build_research_advice(
         ],
     )
     if best is not None:
-        advice.recommendations.extend(_exit_diagnostic_recommendations(getattr(best, "diagnostics", None)))
+        advice.recommendations.extend(
+            _exit_diagnostic_recommendations(getattr(best, "diagnostics", None))
+        )
     return advice
 
 

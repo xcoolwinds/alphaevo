@@ -2308,4 +2308,8 @@ def _entry_guard_bucket_name(strategy: Strategy) -> str:
 
 def _entry_guard_conditions(strategy: Strategy) -> list[StrategyCondition]:
     """Return the active hard-filter bucket, preserving legacy compatibility."""
-    return strategy.entry.guards if strategy.entry.guards or strategy.entry.triggers else strategy.entry.filters
+    return (
+        strategy.entry.guards
+        if strategy.entry.guards or strategy.entry.triggers
+        else strategy.entry.filters
+    )

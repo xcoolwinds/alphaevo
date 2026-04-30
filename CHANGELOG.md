@@ -96,6 +96,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   daily_stock_analysis market data through AlphaEvo's adapter boundary.
 
 ### Changed
+- Default `alphaevo showcase` now runs a six-step validated mutation chain on
+  the bundled yfinance snapshot, improving the reproducible no-key RSI showcase
+  from 8.1% to a 68.7% champion while lowering max drawdown to 23.6%.
 - `ChangeType` enum extended with `CHANGE_LOGIC` and `DISCOVER_FACTOR`
 - `StrategyMeta` model gains `experimental: bool = False` field
 - `EvolutionResult` gains `baseline_param_search_score: float | None` field

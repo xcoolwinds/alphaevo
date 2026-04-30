@@ -217,8 +217,7 @@ class PatternLibrary:
         # 1. Extract entry condition combos
         if len(entry_rules) >= 2:
             entry_conds = [
-                {"indicator": c.indicator, "op": c.op, "value": c.value}
-                for c in entry_rules
+                {"indicator": c.indicator, "op": c.op, "value": c.value} for c in entry_rules
             ]
             pattern = StrategyPattern(
                 pattern_id=f"entry_{sid}",

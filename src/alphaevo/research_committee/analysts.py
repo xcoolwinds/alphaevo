@@ -21,7 +21,9 @@ def technical_verdict(strategy: Strategy, report: EvaluationReport) -> AnalystVe
     if metrics.signal_count < 30:
         status = "fail"
         summary = "Entry stack is too strict for a reliable research sample."
-        recommendations.append("Relax one entry gate or switch entry logic only if retest improves.")
+        recommendations.append(
+            "Relax one entry gate or switch entry logic only if retest improves."
+        )
     elif metrics.avg_return <= 0:
         status = "fail"
         summary = "Signals are tradable but expected return is not yet positive."
@@ -59,11 +61,15 @@ def risk_verdict(report: EvaluationReport) -> AnalystVerdict:
     if metrics.max_drawdown > 0.45:
         status = "fail"
         summary = "Drawdown is too high for promotion."
-        recommendations.append("Widening stop loss alone is not enough; retest holding period and exits.")
+        recommendations.append(
+            "Widening stop loss alone is not enough; retest holding period and exits."
+        )
     elif metrics.max_drawdown > 0.30 or metrics.max_consecutive_loss >= 8:
         status = "watch"
         summary = "Risk is usable for research but still needs exit discipline."
-        recommendations.append("Retest stop loss and max holding days before accepting the version.")
+        recommendations.append(
+            "Retest stop loss and max holding days before accepting the version."
+        )
     else:
         status = "pass"
         summary = "Drawdown and loss clustering are within the research tolerance band."
@@ -100,7 +106,9 @@ def overfit_verdict(report: EvaluationReport) -> AnalystVerdict:
     elif metrics.signal_count < 60:
         status = "watch"
         summary = "Sample is acceptable for showcase, but still thin."
-        recommendations.append("Use a larger basket before treating this as reusable research evidence.")
+        recommendations.append(
+            "Use a larger basket before treating this as reusable research evidence."
+        )
     else:
         status = "pass"
         summary = "No immediate overfit gate failed."
@@ -166,7 +174,9 @@ def mutation_planner_verdict(
     elif report.overall.signal_count < 30:
         status = "pass"
         summary = "Plan starts by unlocking enough signals for a valid retest."
-        recommendations.append("Accept only if the retest improves and reaches a usable sample size.")
+        recommendations.append(
+            "Accept only if the retest improves and reaches a usable sample size."
+        )
     else:
         status = "pass"
         summary = "Plan changes one controlled lever at a time."

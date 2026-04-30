@@ -27,7 +27,18 @@
 
 AlphaEvo is a self-evolving stock strategy research agent. It turns a readable YAML strategy into a research loop: backtest, diagnose failure, propose a controlled mutation, re-test the new version, and keep the full evidence trail.
 
-### Flagship real-data result
+### Reproducible no-key showcase
+
+Bundled frozen yfinance snapshot, US tech basket, 2025-02-11 to 2026-04-10:
+
+| Strategy | Signals | Win Rate | Avg Return | Max DD | Score |
+|----------|---------|----------|------------|--------|-------|
+| `rsi_reversion_v1` baseline | 0 | 0.0% | 0.00% | 0.0% | 8.1% |
+| `rsi_reversion_v7` champion | 37 | 48.6% | 2.94% | 23.6% | 68.7% |
+
+What happened: the deterministic research committee flagged an over-confirmed entry stack, unlocked enough signals, widened the stop, extended holding, raised the payoff target, switched support context to MA60, then tightened volume confirmation. Each change was accepted only after retest. The champion keeps train-val and val-test gaps at 7.1% / 7.1% on this snapshot. See the generated report: [showcase_rsi_reversion_real_snapshot.md](docs/reports/showcase_rsi_reversion_real_snapshot.md).
+
+### Live-data LLM evolution path
 
 Live yfinance data, configured external LLM provider, `alphaevo evolve rsi_reversion_v1 --method llm`, April 10, 2026:
 
@@ -36,18 +47,7 @@ Live yfinance data, configured external LLM provider, `alphaevo evolve rsi_rever
 | `rsi_reversion_v1` baseline | 0 | 0.0% | 0.00% | 8.1% |
 | `rsi_reversion_v3` LLM champion | 498 | 52.6% | 1.22% | 56.3% |
 
-The default CLI showcase below uses a smaller frozen snapshot so anyone can reproduce it without an API key, but the stronger headline result is the LLM evolution path.
-
-### Reproducible no-key showcase
-
-Bundled frozen yfinance snapshot, US tech basket, 2025-02-11 to 2026-04-10:
-
-| Strategy | Signals | Win Rate | Avg Return | Max DD | Score |
-|----------|---------|----------|------------|--------|-------|
-| `rsi_reversion_v1` baseline | 0 | 0.0% | 0.00% | 0.0% | 8.1% |
-| `rsi_reversion_v4` champion | 57 | 47.4% | 1.50% | 36.8% | 37.7% |
-
-What happened: the deterministic research committee flagged an over-confirmed entry stack, tested `entry.logic: and -> or`, widened the stop, then extended holding days. Each change was accepted only after retest. See the generated report: [showcase_rsi_reversion_real_snapshot.md](docs/reports/showcase_rsi_reversion_real_snapshot.md).
+Different data windows and protocols should not be ranked directly; the snapshot showcase is the stable no-key first run, while this path demonstrates the LLM research loop on live market data.
 
 ## 🧠 Core Capabilities
 
@@ -74,7 +74,7 @@ alphaevo showcase
 This runs a real historical-data showcase from a bundled yfinance snapshot:
 
 ```
-Showcase Chain: baseline + up to 3 validated mutations
+Showcase Chain: baseline + up to 6 validated mutations
 
 Round 1 │ rsi_reversion_v1 │ Signals: 0  │ Score: 8.1%
   Committee: entry stack is too strict
@@ -83,7 +83,7 @@ Round 1 │ rsi_reversion_v1 │ Signals: 0  │ Score: 8.1%
 Round 2 │ rsi_reversion_v2 │ Signals: 79 │ Score: 17.8%
   Mutation: exit.stop_loss.value 0.05 -> 0.08
 
-Round 4 │ rsi_reversion_v4 │ Signals: 57 │ Score: 37.7% 🏆
+Round 7 │ rsi_reversion_v7 │ Signals: 37 │ Score: 68.7% 🏆
 ```
 
 ### Choose the right path

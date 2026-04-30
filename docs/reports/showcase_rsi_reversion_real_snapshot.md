@@ -6,14 +6,14 @@
 
 | Item | Value |
 |------|-------|
-| Run ID | `20260429T143645Z_rsi_reversion_1181fd2d` |
-| Generated At | `2026-04-29T14:36:45+00:00` |
+| Run ID | `20260430T054959Z_rsi_reversion_1181fd2d` |
+| Generated At | `2026-04-30T05:49:59+00:00` |
 | Data Source | bundled frozen yfinance snapshot |
 | Snapshot | `us_tech_showcase_2025_2026` |
 | Date Range | 2025-02-11 to 2026-04-10 |
 | Symbols | AAPL, AMD, MSFT, NVDA, TSLA |
 | Baseline | `rsi_reversion_v1` score 8.1% |
-| Champion | `rsi_reversion_v4` score 37.7% |
+| Champion | `rsi_reversion_v7` score 68.7% |
 
 ## Evolution Results
 
@@ -23,6 +23,26 @@
 | 2 | `rsi_reversion_v2` | `entry.logic`: `and` -> `or` | 79 | 40.5% | -0.01% | 54.1% | 17.8% |
 | 3 | `rsi_reversion_v3` | `exit.stop_loss.value`: `0.05` -> `0.08` | 65 | 52.3% | 1.20% | 38.7% | 22.8% |
 | 4 | `rsi_reversion_v4` | `exit.max_holding_days`: `10` -> `14` | 57 | 47.4% | 1.50% | 36.8% | 37.7% |
+| 5 | `rsi_reversion_v5` | `exit.take_profit.value`: `2.0` -> `6.0` | 56 | 48.2% | 2.76% | 36.8% | 46.8% |
+| 6 | `rsi_reversion_v6` | `entry.conditions[indicator=close_to_ma20_pct].indicator`: `close_to_ma20_pct` -> `close_to_ma60_pct` | 38 | 47.4% | 2.59% | 26.4% | 54.6% |
+| 7 | `rsi_reversion_v7` | `entry.conditions[indicator=volume_ratio_1d_5d].value`: `1.3` -> `2.0` | 37 | 48.6% | 2.94% | 23.6% | 68.7% |
+
+## Champion Diagnostics
+
+| Metric | Value |
+|--------|-------|
+| Signals | 37 |
+| Win Rate | 48.6% |
+| Average Return | 2.94% |
+| Sequential Total Return | 140.56% |
+| Profit/Loss Ratio | 2.46 |
+| Max Drawdown | 23.6% |
+| Train-Val Gap | 7.1% |
+| Val-Test Gap | 7.1% |
+| Yearly Consistency | 97.1% |
+| Overfit Flag | no |
+
+The champion remains a showcase result, not an official benchmark: it uses a fixed five-symbol snapshot and should be revalidated on broader universes before any serious research claim.
 
 ## Research Committee
 
@@ -47,7 +67,22 @@
 | 4 | Risk Analyst | watch | Risk is usable for research but still needs exit discipline. |
 | 4 | Overfit Critic | fail | Anti-overfit checks reject promotion. |
 | 4 | Data Quality Auditor | pass | Data source and symbol basket are explicit enough for a showcase. |
-| 4 | Mutation Planner | watch | No mutation plan is available; evaluate current version only. |
+| 4 | Mutation Planner | pass | Plan changes one controlled lever at a time. |
+| 5 | Technical Analyst | pass | Technical signal has enough trades and positive payoff shape. |
+| 5 | Risk Analyst | watch | Risk is usable for research but still needs exit discipline. |
+| 5 | Overfit Critic | fail | Anti-overfit checks reject promotion. |
+| 5 | Data Quality Auditor | pass | Data source and symbol basket are explicit enough for a showcase. |
+| 5 | Mutation Planner | pass | Plan changes one controlled lever at a time. |
+| 6 | Technical Analyst | pass | Technical signal has enough trades and positive payoff shape. |
+| 6 | Risk Analyst | pass | Drawdown and loss clustering are within the research tolerance band. |
+| 6 | Overfit Critic | fail | Anti-overfit checks reject promotion. |
+| 6 | Data Quality Auditor | pass | Data source and symbol basket are explicit enough for a showcase. |
+| 6 | Mutation Planner | pass | Plan changes one controlled lever at a time. |
+| 7 | Technical Analyst | pass | Technical signal has enough trades and positive payoff shape. |
+| 7 | Risk Analyst | pass | Drawdown and loss clustering are within the research tolerance band. |
+| 7 | Overfit Critic | watch | Sample is acceptable for showcase, but still thin. |
+| 7 | Data Quality Auditor | pass | Data source and symbol basket are explicit enough for a showcase. |
+| 7 | Mutation Planner | watch | No mutation plan is available; evaluate current version only. |
 
 ## Mutation Evidence
 
@@ -62,6 +97,18 @@
 ### Round 4: `rsi_reversion_v4`
 - `exit.max_holding_days` changed from `10` to `14`.
   Rationale: Mean reversion needed more time to complete; test a longer holding window while watching drawdown.
+
+### Round 5: `rsi_reversion_v5`
+- `exit.take_profit.value` changed from `2.0` to `6.0`.
+  Rationale: Validated high-volume reversals needed a larger payoff target; test a wider reward multiple instead of taking profits too early.
+
+### Round 6: `rsi_reversion_v6`
+- `entry.conditions[indicator=close_to_ma20_pct].indicator` changed from `close_to_ma20_pct` to `close_to_ma60_pct`.
+  Rationale: A longer support anchor reduced whipsaw drawdown on the snapshot; test MA60 proximity as the reversal support context.
+
+### Round 7: `rsi_reversion_v7`
+- `entry.conditions[indicator=volume_ratio_1d_5d].value` changed from `1.3` to `2.0`.
+  Rationale: After OR logic unlocked signals, require stronger volume confirmation to filter weaker rebounds.
 
 ## Run Provenance
 

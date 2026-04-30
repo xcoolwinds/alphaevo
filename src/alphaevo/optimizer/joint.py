@@ -93,11 +93,7 @@ class JointOptimizer:
                 )
             )
 
-        candidates = [
-            candidate
-            for result in results
-            for candidate in result.candidates
-        ]
+        candidates = [candidate for result in results for candidate in result.candidates]
         ranked = sorted(
             candidates,
             key=lambda candidate: candidate_sort_key(

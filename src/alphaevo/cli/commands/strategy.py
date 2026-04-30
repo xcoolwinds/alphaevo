@@ -273,7 +273,7 @@ def strategy_research(
     advice_path.write_text(render_research_advice(advice), encoding="utf-8")
     console.print(f"[green]✓[/green] Research advice: {advice_path}")
 
-    console.print(f"[dim]Revise with: alphaevo strategy revise {strategy.meta.id} \"<改法>\"[/dim]")
+    console.print(f'[dim]Revise with: alphaevo strategy revise {strategy.meta.id} "<改法>"[/dim]')
 
 
 @strategy_app.command("revise")
@@ -500,7 +500,9 @@ def _print_strategy_next_steps(
     elif output is not None:
         console.print(f"[dim]Import with: alphaevo strategy import {output}[/dim]")
     else:
-        console.print("[dim]Use --save to backtest this draft directly, or --output to write YAML.[/dim]")
+        console.print(
+            "[dim]Use --save to backtest this draft directly, or --output to write YAML.[/dim]"
+        )
 
 
 def _parse_date_range(

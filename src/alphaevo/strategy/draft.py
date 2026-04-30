@@ -83,7 +83,9 @@ class StrategyDraftBuilder:
             universe=_universe_for(market_type),
             entry=entry,
             exit=exit_rules,
-            params=StrategyParams(tunable=self._build_tunables(triggers, exit_rules, guards=guards)),
+            params=StrategyParams(
+                tunable=self._build_tunables(triggers, exit_rules, guards=guards)
+            ),
             market_rules=_market_rules_for(market_type),
         )
 
@@ -308,7 +310,9 @@ class StrategyDraftBuilder:
                     seen_targets.add(target)
                 period_spec = _PERIOD_TUNABLE_SPECS.get(_period_tunable_key(condition.indicator))
                 if period_spec is not None:
-                    period_target = f"entry.{bucket_name}[indicator={condition.indicator}].indicator"
+                    period_target = (
+                        f"entry.{bucket_name}[indicator={condition.indicator}].indicator"
+                    )
                     if period_target not in seen_targets:
                         lo, hi, step, label = period_spec
                         tunables.append(
@@ -554,9 +558,7 @@ def _exit_triggers_for(text: str) -> list[StrategyCondition]:
     if not _contains_any(text, _EXIT_SIGNAL_TERMS):
         return []
     if ma_period := _extract_exit_ma_period(text):
-        return [
-            StrategyCondition(indicator=f"close_below_ma{ma_period}", op="==", value=True)
-        ]
+        return [StrategyCondition(indicator=f"close_below_ma{ma_period}", op="==", value=True)]
     if "rsi" in text or "过热" in text:
         return [StrategyCondition(indicator="rsi_14", op=">", value=75)]
     return [StrategyCondition(indicator="close_below_ma10", op="==", value=True)]

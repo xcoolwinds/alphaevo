@@ -276,9 +276,7 @@ class ParamOptimizer:
             evaluated = [runner(item) for item in work_items]
 
         candidates = [candidate for candidate, _result in evaluated]
-        backtest_results = {
-            candidate.candidate_id: result for candidate, result in evaluated
-        }
+        backtest_results = {candidate.candidate_id: result for candidate, result in evaluated}
 
         ranked = sorted(
             candidates,
@@ -833,7 +831,9 @@ def _candidate_sort_key(
     )
 
 
-def _objective_value(candidate: ParamOptimizationCandidate, objective: OptimizationObjective) -> float:
+def _objective_value(
+    candidate: ParamOptimizationCandidate, objective: OptimizationObjective
+) -> float:
     return objective_value(candidate.evaluation, objective)
 
 
