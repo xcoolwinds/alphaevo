@@ -11,8 +11,8 @@ to the same cache entry concurrently.
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import logging
+import os
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -20,6 +20,24 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd  # type: ignore[import-untyped]
+
+if os.name == "nt":
+    import msvcrt
+
+    def _flock_acquire(fd: object) -> None:
+        msvcrt.locking(fd.fileno(), msvcrt.LK_LOCK, 1)  # type: ignore[attr-defined]
+
+    def _flock_release(fd: object) -> None:
+        msvcrt.locking(fd.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
+
+else:
+    import fcntl
+
+    def _flock_acquire(fd: object) -> None:
+        fcntl.flock(fd, fcntl.LOCK_EX)  # type: ignore[attr-defined]
+
+    def _flock_release(fd: object) -> None:
+        fcntl.flock(fd, fcntl.LOCK_UN)  # type: ignore[attr-defined]
 
 logger = logging.getLogger(__name__)
 
@@ -167,10 +185,10 @@ class DataCache:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         fd = lock_path.open("w")
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX)
+            _flock_acquire(fd)
             yield
         finally:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            _flock_release(fd)
             fd.close()
             # Best-effort cleanup; race with other processes is harmless
             with contextlib.suppress(OSError):

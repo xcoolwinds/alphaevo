@@ -5,6 +5,19 @@ Thin assembler that registers sub-command modules.
 
 from __future__ import annotations
 
+import sys
+
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    try:
+        import ctypes
+
+        ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+        ctypes.windll.kernel32.SetConsoleCP(65001)
+    except Exception:
+        pass
+
 from typing import Any
 
 import typer
@@ -18,7 +31,7 @@ app = typer.Typer(
     help="🧬 AlphaEvo — Self-Evolving Stock Strategy Research Agent",
     no_args_is_help=True,
 )
-console = Console()
+console = Console(legacy_windows=False)
 
 # ── Shared helpers (kept importable for backward compat with tests) ───
 
